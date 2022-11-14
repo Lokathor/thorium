@@ -6,10 +6,11 @@ use beryllium::{
   video::{CreateWinArgs, GlContextFlags, GlProfile, GlSwapInterval},
   Sdl,
 };
-use bytemuck::{offset_of, Pod, Zeroable};
+use bytemuck::{cast_slice_mut, offset_of, Pod, Zeroable};
 use gles31::{
-  glDrawArrays, glDrawElements, glEnable, glVertexAttribPointer, GL_FALSE,
-  GL_FLOAT, GL_TRIANGLES, GL_UNSIGNED_INT,
+  glDrawArrays, glDrawElements, glEnable, glGetError, glMapBufferRange,
+  glUnmapBuffer, glVertexAttribPointer, GL_FALSE, GL_FLOAT, GL_MAP_READ_BIT,
+  GL_MAP_WRITE_BIT, GL_NO_ERROR, GL_TRIANGLES, GL_UNSIGNED_INT,
 };
 use std::mem::size_of;
 use thorium::*;
@@ -25,10 +26,12 @@ void main() {
 const FRAGMENT_SHADER_SRC: &str = "#version 310 es
 precision mediump float;
 
+uniform vec4 tri_color;
+
 out vec4 FragColor;
 
 void main() {
-  FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
+  FragColor = tri_color;
 }
 ";
 
@@ -120,16 +123,20 @@ fn main() {
   vao.bind();
 
   let vbo = BufferObject::new();
-  ArrayBuffer.bind(&vbo);
-  ArrayBuffer.realloc_from(VERTICES, DrawHint::StaticDraw);
+  BufferTarget::ArrayBuffer.bind(&vbo);
+  BufferTarget::ArrayBuffer.realloc_from(VERTICES, DrawHint::StaticDraw);
+  BufferTarget::ArrayBuffer.map_closure(0, 4, |f| {
+    let f: &mut [f32] = cast_slice_mut(f);
+    f[0] = -0.75;
+  });
 
   // You must configure the attributes **AFTER** having put data into the buffer
   // at least once.
   Vertex::config_vertex_attributes();
 
   let ebo = BufferObject::new();
-  ElementArrayBuffer.bind(&ebo);
-  ElementArrayBuffer.realloc_from(ELEMENTS, DrawHint::StaticDraw);
+  BufferTarget::ElementArrayBuffer.bind(&ebo);
+  BufferTarget::ElementArrayBuffer.realloc_from(ELEMENTS, DrawHint::StaticDraw);
 
   let vertex_shader = Shader::new(ShaderType::Vertex);
   vertex_shader.set_source(VERTEX_SHADER_SRC);
@@ -143,7 +150,21 @@ fn main() {
   program.attach_shader(&vertex_shader);
   program.attach_shader(&fragment_shader);
   program.link().unwrap();
+  if cfg!(debug_assertions) {
+    program.validate().unwrap();
+  }
   program.use_program();
+  println!(
+    "Program Binary is {} bytes",
+    program.get_binary_capacity_requirement()
+  );
+
+  for i in 0..program.get_active_attribute_count() {
+    println!("Attribute {i}: {:?}", program.get_active_attribute(i));
+  }
+  for i in 0..program.get_active_uniform_count() {
+    println!("Uniform {i}: {:?}", program.get_active_uniform(i));
+  }
 
   // program "main loop".
   'the_loop: loop {
