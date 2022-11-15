@@ -15,6 +15,9 @@ pub use shader::*;
 mod program;
 pub use program::*;
 
+mod texture;
+pub use texture::*;
+
 #[inline]
 pub fn set_viewport(win_width: u32, win_height: u32) {
   unsafe { glViewport(0, 0, win_width, win_height) }
