@@ -185,6 +185,27 @@ impl BufferTarget {
       None => None,
     }
   }
+
+  /// Copy into this buffer from the other buffer specified.
+  ///
+  /// Both offset values, as well as the length, must be specified in bytes.
+  ///
+  /// The buffer target to read from can't be this buffer target.
+  #[inline]
+  pub fn copy_from(
+    self, write_offset: usize, read_target: BufferTarget, read_offset: usize,
+    len: usize,
+  ) {
+    unsafe {
+      glCopyBufferSubData(
+        read_target as u32,
+        self as u32,
+        read_offset.try_into().unwrap(),
+        write_offset.try_into().unwrap(),
+        len.try_into().unwrap(),
+      )
+    }
+  }
 }
 
 #[inline]
@@ -206,4 +227,71 @@ pub fn set_vertex_attrib_array_enabled(attrib_index: u32, enabled: bool) {
 #[inline]
 pub fn release_shader_compiler() {
   unsafe { glReleaseShaderCompiler() }
+}
+
+#[inline]
+pub fn get_line_width_range() -> (f32, f32) {
+  let mut data: [f32; 2] = [0.0, 0.0];
+  unsafe { glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, data.as_mut_ptr()) };
+  (data[0], data[1])
+}
+
+#[inline]
+pub fn get_point_width_range() -> (f32, f32) {
+  let mut data: [f32; 2] = [0.0, 0.0];
+  unsafe { glGetFloatv(GL_ALIASED_POINT_SIZE_RANGE, data.as_mut_ptr()) };
+  (data[0], data[1])
+}
+
+/// Sets if using the index type's max value as an index should trigger
+/// primitive restart.
+///
+/// Off by default.
+#[inline]
+pub fn set_primitive_restart_fixed_index_enabled(enabled: bool) {
+  unsafe {
+    if enabled {
+      glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX)
+    } else {
+      glDisable(GL_PRIMITIVE_RESTART_FIXED_INDEX)
+    }
+  }
+}
+
+#[inline]
+pub fn set_depth_range(near: f32, far: f32) {
+  unsafe { glDepthRangef(near, far) }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum FrontFace {
+  Clockwise = GL_CW,
+  CounterClockwise = GL_CCW,
+}
+#[inline]
+pub fn set_front_face(face: FrontFace) {
+  unsafe { glFrontFace(face as u32) }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum CullFace {
+  Front = GL_FRONT,
+  Back = GL_BACK,
+  FrontAndBack = GL_FRONT_AND_BACK,
+}
+#[inline]
+pub fn set_cull_face(face: CullFace) {
+  unsafe { glCullFace(face as u32) }
+}
+#[inline]
+pub fn set_cull_face_enabled(enabled: bool) {
+  unsafe {
+    if enabled {
+      glEnable(GL_CULL_FACE)
+    } else {
+      glDisable(GL_CULL_FACE)
+    }
+  }
 }

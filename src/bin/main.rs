@@ -115,6 +115,8 @@ fn main() {
     };
   }
   println!("Max Vertex Attributes: {}", get_max_vertex_attribute_count());
+  println!("Point Width Range: {:?}", get_point_width_range());
+  println!("Line Width Range: {:?}", get_line_width_range());
 
   let (mut win_width, mut win_height) = win.get_window_size();
   let (mut mouse_x, mut mouse_y) = (win_width, win_height);
