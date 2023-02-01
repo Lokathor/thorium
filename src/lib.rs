@@ -73,12 +73,11 @@ pub mod winbase {
   }
 
   impl ErrorCode {
-    /// Formats an error code from the system into a [LocalAllocBuffer] holding
-    /// the UTF-16 text of the message.
+    /// Formats an error code from the system into UTF-16 text.
     ///
     /// ## Failure
     /// * Application errors can't be formatted with this method.
-    pub fn format_to_buffer(self) -> Result<LocalBox<[u16]>, ErrorCode> {
+    pub fn format_system_error(self) -> Result<LocalBox<[u16]>, ErrorCode> {
       // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-formatmessagew#parameters
       const FORMAT_MESSAGE_ALLOCATE_BUFFER: DWORD = 0x00000100;
       const FORMAT_MESSAGE_FROM_SYSTEM: DWORD = 0x00001000;
