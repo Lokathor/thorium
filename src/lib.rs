@@ -16,6 +16,8 @@ pub mod win_types {
 }
 
 pub mod winbase {
+  use core::ptr::NonNull;
+
   use super::{errhandlingapi::*, win_types::*};
 
   #[link(name = "Kernel32")]
@@ -35,21 +37,22 @@ pub mod winbase {
   /// Gets dropped by `LocalFree`.
   #[derive(Debug)]
   #[repr(transparent)]
-  pub struct LocalBox<T: ?Sized>(*mut T);
+  pub struct LocalBox<T: ?Sized>(NonNull<T>);
   impl<T: ?Sized> LocalBox<T> {
     /// ## Safety
     /// * The pointer must have been allocated with `LocalAlloc` or
     ///   `LocalReAlloc`.
+    /// * The pointer must point to initialized data.
     /// * This passes ownership of the pointer into the function.
     #[inline]
-    pub const unsafe fn new(ptr: *mut T) -> Self {
-      Self(ptr)
+    pub const unsafe fn new(nn: NonNull<T>) -> Self {
+      Self(nn)
     }
   }
   impl<T: ?Sized> Drop for LocalBox<T> {
     #[inline]
     fn drop(&mut self) {
-      let handle = HANDLE(self.0 as *mut u8 as isize);
+      let handle = HANDLE(self.0.as_ptr() as *mut u8 as isize);
       unsafe { LocalFree(handle) };
     }
   }
@@ -58,14 +61,14 @@ pub mod winbase {
     #[inline]
     #[must_use]
     fn deref(&self) -> &T {
-      unsafe { &*self.0 }
+      unsafe { &*self.0.as_ptr() }
     }
   }
   impl<T: ?Sized> core::ops::DerefMut for LocalBox<T> {
     #[inline]
     #[must_use]
     fn deref_mut(&mut self) -> &mut T {
-      unsafe { &mut *self.0 }
+      unsafe { &mut *self.0.as_ptr() }
     }
   }
 
@@ -111,7 +114,8 @@ pub mod winbase {
           local_alloc_ptr,
           w_chars_excluding_null as usize,
         );
-        Ok(unsafe { LocalBox::new(p) })
+        let nn: NonNull<[u16]> = NonNull::new(p).unwrap();
+        Ok(unsafe { LocalBox::new(nn) })
       }
     }
   }
