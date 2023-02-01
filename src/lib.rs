@@ -11,15 +11,33 @@ pub mod win_types {
   pub type HLOCAL = HANDLE;
   pub type HMODULE = HANDLE;
   pub type HINSTANCE = HANDLE;
+  pub type HICON = HANDLE;
+  pub type HCURSOR = HANDLE;
+  pub type HBRUSH = HANDLE;
+  pub type HWND = HANDLE;
   pub type LPCWSTR = *const WCHAR;
+  pub type UINT = c_uint;
+  pub type int = c_int;
+  pub type ULONG_PTR = usize;
+  pub type WORD = c_ushort;
+
+  pub type WNDPROC_nn =
+    unsafe extern "system" fn(HWND, u32, usize, isize) -> isize;
+  pub type WNDPROC = Option<WNDPROC_nn>;
 
   #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
   #[repr(transparent)]
   pub struct HANDLE(pub isize);
   impl HANDLE {
     #[inline]
+    #[must_use]
     pub const fn is_null(self) -> bool {
       self.0 == 0
+    }
+    #[inline]
+    #[must_use]
+    pub const fn null() -> Self {
+      Self(0)
     }
   }
 }
@@ -54,7 +72,7 @@ pub mod winbase {
     /// * The pointer must point to initialized data.
     /// * This passes ownership of the pointer into the function.
     #[inline]
-    pub const unsafe fn new(nn: NonNull<T>) -> Self {
+    pub const unsafe fn from_nn(nn: NonNull<T>) -> Self {
       Self(nn)
     }
   }
@@ -120,10 +138,10 @@ pub mod winbase {
       } else {
         let p: *mut [u16] = core::ptr::slice_from_raw_parts_mut(
           local_alloc_ptr,
-          w_chars_excluding_null as usize,
+          w_chars_excluding_null.try_into().unwrap(),
         );
         let nn: NonNull<[u16]> = NonNull::new(p).unwrap();
-        Ok(unsafe { LocalBox::new(nn) })
+        Ok(unsafe { LocalBox::from_nn(nn) })
       }
     }
   }
@@ -132,6 +150,8 @@ pub mod winbase {
 pub mod errhandlingapi {
   use super::win_types::*;
 
+  /// The error code bit that indicates an application error.
+  ///
   /// If you are defining an error code for your application, set this bit to
   /// indicate that the error code has been defined by your application and to
   /// ensure that your error code does not conflict with any system-defined
@@ -168,6 +188,7 @@ pub mod errhandlingapi {
     ErrorCode(unsafe { GetLastError() })
   }
 
+  /// Sets the thread-local "last error" value.
   #[inline]
   pub fn set_last_error(err_code: ErrorCode) {
     unsafe { SetLastError(err_code.0) }
@@ -193,6 +214,107 @@ pub mod libloaderapi {
       Err(get_last_error())
     } else {
       Ok(handle)
+    }
+  }
+}
+
+pub mod winuser {
+  use super::{
+    errhandlingapi::{get_last_error, ErrorCode},
+    win_types::*,
+  };
+
+  #[link(name = "User32")]
+  extern "system" {
+    /// MSDN: [LoadCursorW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-loadcursorw)
+    fn LoadCursorW(instance: HINSTANCE, cursor_name: LPCWSTR) -> HCURSOR;
+  }
+
+  #[derive(Clone, Copy)]
+  #[repr(C)]
+  struct WNDCLASSEXW {
+    pub size: UINT,
+    pub style: UINT,
+    pub wnd_proc: WNDPROC,
+    pub cls_extra: int,
+    pub wnd_extra: int,
+    pub instance: HINSTANCE,
+    pub icon: HICON,
+    pub cursor: HCURSOR,
+    pub background: HBRUSH,
+    pub menu_name: LPCWSTR,
+    pub class_name: LPCWSTR,
+    pub small_icon: HICON,
+  }
+  impl Default for WNDCLASSEXW {
+    /// Correctly assigns `size` and leaves all other fields zeroed.
+    #[inline]
+    #[must_use]
+    fn default() -> Self {
+      Self {
+        size: core::mem::size_of::<Self>().try_into().unwrap(),
+        ..unsafe { core::mem::zeroed() }
+      }
+    }
+  }
+
+  /// * MSDN: [MAKEINTRESOURCEW](https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-makeintresourcew)
+  #[allow(dead_code)]
+  const fn make_int_resource_w(i: WORD) -> LPWSTR {
+    i as ULONG_PTR as LPWSTR
+  }
+
+  /// The predefined cursor styles.
+  ///
+  /// * MSDN: [LoadCursorW](https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-loadcursorw)
+  #[repr(u16)]
+  pub enum IDCursor {
+    /// Standard arrow and small hourglass
+    AppStarting = 32650,
+    /// Standard arrow
+    Arrow = 32512,
+    /// Crosshair
+    Cross = 32515,
+    /// Hand
+    Hand = 32649,
+    /// Arrow and question mark
+    Help = 32651,
+    /// I-beam
+    IBeam = 32513,
+    /// Slashed circle
+    No = 32648,
+    /// Four-pointed arrow pointing north, south, east, and west
+    SizeAll = 32646,
+    /// Double-pointed arrow pointing northeast and southwest
+    SizeNeSw = 32643,
+    /// Double-pointed arrow pointing north and south
+    SizeNS = 32645,
+    /// Double-pointed arrow pointing northwest and southeast
+    SizeNwSe = 32642,
+    /// Double-pointed arrow pointing west and east
+    SizeWE = 32644,
+    /// Vertical arrow
+    UpArrow = 32516,
+    /// Hourglass
+    Wait = 32514,
+  }
+
+  /// Load one of the predefined cursors.
+  ///
+  /// MSDN: [LoadCursorW](https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-loadcursorw)
+  #[inline]
+  pub fn load_predefined_cursor(
+    cursor: IDCursor,
+  ) -> Result<HCURSOR, ErrorCode> {
+    let instance = HINSTANCE::null();
+    let cursor_name = make_int_resource_w(cursor as WORD);
+    // Safety: The enum limits the allowed values to being from the approved
+    // list on MSDN.
+    let hcursor = unsafe { LoadCursorW(instance, cursor_name) };
+    if hcursor.is_null() {
+      Err(get_last_error())
+    } else {
+      Ok(hcursor)
     }
   }
 }
