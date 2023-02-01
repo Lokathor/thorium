@@ -30,40 +30,42 @@ pub mod winbase {
     pub fn LocalFree(mem: HLOCAL) -> HLOCAL;
   }
 
-  /// Buffer of data allocated by `LocalAlloc`.
+  /// Owned data allocated by `LocalAlloc`.
   ///
   /// Gets dropped by `LocalFree`.
   #[derive(Debug)]
-  pub struct LocalAllocBuffer<T> {
-    ptr: *mut T,
-    length: usize,
-  }
-  impl<T> LocalAllocBuffer<T> {
+  #[repr(transparent)]
+  pub struct LocalBox<T: ?Sized>(*mut T);
+  impl<T: ?Sized> LocalBox<T> {
+    /// ## Safety
+    /// * The pointer must have been allocated with `LocalAlloc` or
+    ///   `LocalReAlloc`.
+    /// * This passes ownership of the pointer into the function.
     #[inline]
-    pub const unsafe fn from_raw_parts(ptr: *mut T, length: usize) -> Self {
-      Self { ptr, length }
+    pub const unsafe fn new(ptr: *mut T) -> Self {
+      Self(ptr)
     }
   }
-  impl<T> Drop for LocalAllocBuffer<T> {
+  impl<T: ?Sized> Drop for LocalBox<T> {
     #[inline]
     fn drop(&mut self) {
-      let handle = HANDLE(self.ptr as isize);
+      let handle = HANDLE(self.0 as *mut u8 as isize);
       unsafe { LocalFree(handle) };
     }
   }
-  impl<T> core::ops::Deref for LocalAllocBuffer<T> {
-    type Target = [T];
+  impl<T: ?Sized> core::ops::Deref for LocalBox<T> {
+    type Target = T;
     #[inline]
     #[must_use]
-    fn deref(&self) -> &[T] {
-      unsafe { core::slice::from_raw_parts(self.ptr, self.length) }
+    fn deref(&self) -> &T {
+      unsafe { &*self.0 }
     }
   }
-  impl<T> core::ops::DerefMut for LocalAllocBuffer<T> {
+  impl<T: ?Sized> core::ops::DerefMut for LocalBox<T> {
     #[inline]
     #[must_use]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-      unsafe { core::slice::from_raw_parts_mut(self.ptr, self.length) }
+    fn deref_mut(&mut self) -> &mut T {
+      unsafe { &mut *self.0 }
     }
   }
 
@@ -73,7 +75,7 @@ pub mod winbase {
     ///
     /// ## Failure
     /// * Application errors can't be formatted with this method.
-    pub fn format_to_buffer(self) -> Result<LocalAllocBuffer<u16>, ErrorCode> {
+    pub fn format_to_buffer(self) -> Result<LocalBox<[u16]>, ErrorCode> {
       // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-formatmessagew#parameters
       const FORMAT_MESSAGE_ALLOCATE_BUFFER: DWORD = 0x00000100;
       const FORMAT_MESSAGE_FROM_SYSTEM: DWORD = 0x00001000;
@@ -105,12 +107,11 @@ pub mod winbase {
       if w_chars_excluding_null == 0 || local_alloc_ptr.is_null() {
         Err(get_last_error())
       } else {
-        Ok(unsafe {
-          LocalAllocBuffer::from_raw_parts(
-            local_alloc_ptr,
-            w_chars_excluding_null as usize,
-          )
-        })
+        let p: *mut [u16] = core::ptr::slice_from_raw_parts_mut(
+          local_alloc_ptr,
+          w_chars_excluding_null as usize,
+        );
+        Ok(unsafe { LocalBox::new(p) })
       }
     }
   }
