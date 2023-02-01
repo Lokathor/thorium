@@ -9,10 +9,19 @@ pub mod win_types {
   pub type wchar_t = u16;
   pub type va_list = c_void;
   pub type HLOCAL = HANDLE;
+  pub type HMODULE = HANDLE;
+  pub type HINSTANCE = HANDLE;
+  pub type LPCWSTR = *const WCHAR;
 
   #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
   #[repr(transparent)]
   pub struct HANDLE(pub isize);
+  impl HANDLE {
+    #[inline]
+    pub const fn is_null(self) -> bool {
+      self.0 == 0
+    }
+  }
 }
 
 pub mod winbase {
@@ -23,13 +32,13 @@ pub mod winbase {
   #[link(name = "Kernel32")]
   extern "system" {
     /// MSDN: [FormatMessageW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-formatmessagew)
-    pub fn FormatMessageW(
+    fn FormatMessageW(
       flags: DWORD, source: LPCVOID, message_id: DWORD, language_id: DWORD,
       buffer: LPWSTR, size: DWORD, arguments: *mut va_list,
     ) -> DWORD;
 
     /// MSDN: [LocalFree](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-localfree)
-    pub fn LocalFree(mem: HLOCAL) -> HLOCAL;
+    fn LocalFree(mem: HLOCAL) -> HLOCAL;
   }
 
   /// Owned data allocated by `LocalAlloc`.
@@ -132,10 +141,10 @@ pub mod errhandlingapi {
   #[link(name = "Kernel32")]
   extern "system" {
     /// MSDN: [GetLastError](https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-getlasterror)
-    pub fn GetLastError() -> DWORD;
+    fn GetLastError() -> DWORD;
 
     /// MSDN: [SetLastError](https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-setlasterror)
-    pub fn SetLastError(err_code: DWORD);
+    fn SetLastError(err_code: DWORD);
   }
 
   #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -157,5 +166,33 @@ pub mod errhandlingapi {
   #[must_use]
   pub fn get_last_error() -> ErrorCode {
     ErrorCode(unsafe { GetLastError() })
+  }
+
+  #[inline]
+  pub fn set_last_error(err_code: ErrorCode) {
+    unsafe { SetLastError(err_code.0) }
+  }
+}
+
+pub mod libloaderapi {
+  use super::{
+    errhandlingapi::{get_last_error, ErrorCode},
+    win_types::*,
+  };
+
+  #[link(name = "Kernel32")]
+  extern "system" {
+    /// MSDN: [GetModuleHandleW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew)
+    fn GetModuleHandleW(module_name: LPCWSTR) -> HMODULE;
+  }
+
+  #[inline]
+  pub fn get_process_instance() -> Result<HINSTANCE, ErrorCode> {
+    let handle = unsafe { GetModuleHandleW(core::ptr::null()) };
+    if handle.is_null() {
+      Err(get_last_error())
+    } else {
+      Ok(handle)
+    }
   }
 }
