@@ -1,3 +1,5 @@
+mod macros;
+
 pub mod errhandlingapi;
 pub mod libloaderapi;
 pub mod win_types;
