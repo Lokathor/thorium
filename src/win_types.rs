@@ -4,6 +4,7 @@ use core::ffi::*;
 
 pub type DWORD = c_ulong;
 pub type LPCVOID = *const c_void;
+pub type LPVOID = *mut c_void;
 pub type LPWSTR = *mut WCHAR;
 pub type WCHAR = wchar_t;
 pub type wchar_t = u16;
@@ -11,6 +12,7 @@ pub type va_list = c_void;
 pub type HLOCAL = HANDLE;
 pub type HMODULE = HANDLE;
 pub type HINSTANCE = HANDLE;
+pub type HMENU = HANDLE;
 pub type HICON = HANDLE;
 pub type HCURSOR = HANDLE;
 pub type HBRUSH = HANDLE;
@@ -26,6 +28,7 @@ pub type UINT_PTR = usize;
 pub type LPARAM = LONG_PTR;
 pub type LONG_PTR = isize;
 pub type LRESULT = LONG_PTR;
+pub type USHORT = c_ushort;
 
 pub type WNDPROC_nn = unsafe extern "system" fn(
   hwnd: HWND,

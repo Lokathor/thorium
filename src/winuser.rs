@@ -23,6 +23,21 @@ extern "system" {
   pub fn DefWindowProcW(
     hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM,
   ) -> LRESULT;
+
+  /// MSDN: [CreateWindowExW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-createwindowexw)
+  fn CreateWindowExW(
+    ex_style: DWORD, class_name: LPCWSTR, window_name: LPCWSTR, style: DWORD,
+    x: int, y: int, width: int, height: int, wnd_parent: HWND, menu: HMENU,
+    instance: HINSTANCE, create_param: LPVOID,
+  ) -> HWND;
+
+  /// MSDN: [DestroyWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-destroywindow)
+  fn DestroyWindow(hwnd: HWND) -> BOOL;
+
+  /// MSDN: [RegisterRawInputDevices](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerrawinputdevices)
+  fn RegisterRawInputDevices(
+    raw_input_devices: *const RAWINPUTDEVICE, num_devices: UINT, size: UINT,
+  ) -> BOOL;
 }
 
 #[derive(Clone, Copy, Default)]
@@ -203,7 +218,7 @@ impl WindowClass {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct WindowClassAtom(ATOM);
 impl WindowClassAtom {
   #[inline]
@@ -277,5 +292,81 @@ pub fn load_predefined_cursor(
     Err(get_last_error_here())
   } else {
     Ok(hcursor)
+  }
+}
+
+#[inline]
+#[track_caller]
+pub unsafe fn create_window(
+  name: ZWString, class_atom: WindowClassAtom, style: WindowStyle,
+  ex_style: WindowStyleExtended, x: i32, y: i32, width: i32, height: i32,
+  wnd_parent: HWND, menu: HMENU, create_param: LPVOID,
+) -> OsResult<HWND> {
+  let class_name = class_atom.0 as LPCWSTR;
+  let window_name = name.as_ptr();
+  let instance = get_process_instance()?;
+  let hwnd = unsafe {
+    CreateWindowExW(
+      ex_style.0,
+      class_name,
+      window_name,
+      style.0,
+      x,
+      y,
+      width,
+      height,
+      wnd_parent,
+      menu,
+      instance,
+      create_param,
+    )
+  };
+  if hwnd.is_null() {
+    Err(get_last_error_here())
+  } else {
+    Ok(hwnd)
+  }
+}
+
+#[inline]
+#[track_caller]
+pub fn destroy_window(hwnd: HWND) -> OsResult<()> {
+  if unsafe { DestroyWindow(hwnd) }.into() {
+    Ok(())
+  } else {
+    Err(get_last_error_here())
+  }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct WinMessage(pub UINT);
+impl WinMessage {
+  pub const CREATE: Self = Self(0x0001);
+  pub const INPUT: Self = Self(0x00FF);
+}
+
+/// MSDN: [RAWINPUTDEVICE](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawinputdevice)
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct RAWINPUTDEVICE {
+  pub usage_page: USHORT,
+  pub usage: USHORT,
+  pub flags: DWORD,
+  pub target: HWND,
+}
+
+#[inline]
+#[track_caller]
+pub fn register_raw_input_devices(devices: &[RAWINPUTDEVICE]) -> OsResult<()> {
+  let raw_input_devices: *const RAWINPUTDEVICE = devices.as_ptr();
+  let num_devices: UINT = devices.len().try_into().unwrap();
+  let size: UINT = size_of::<RAWINPUTDEVICE>().try_into().unwrap();
+  if unsafe { RegisterRawInputDevices(raw_input_devices, num_devices, size) }
+    .into()
+  {
+    Ok(())
+  } else {
+    Err(get_last_error_here())
   }
 }
