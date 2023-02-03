@@ -535,6 +535,7 @@ struct RAWKEYBOARD {
   extra_information: ULONG,
 }
 
+/// MSDN: [RAWHID](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawhid)
 #[derive(Clone, Copy)]
 #[repr(C)]
 struct RAWHID {
@@ -560,7 +561,7 @@ struct RAWINPUT {
 }
 
 #[repr(transparent)]
-pub struct RawInputData(*mut [u8]);
+pub struct RawInputData(GlobalBuffer);
 impl RawInputData {
   #[inline]
   #[track_caller]
@@ -575,33 +576,20 @@ impl RawInputData {
     if get_size_ret != 0 {
       return Err(get_last_error_here());
     }
-    let layout =
-      Layout::from_size_align(size.try_into().unwrap(), align_of::<RAWINPUT>())
-        .unwrap();
-    let p = unsafe { alloc::alloc::alloc_zeroed(layout) };
-    if p.is_null() {
-      return Err(LocatedErrorCode::new(ErrorCode::NOT_ENOUGH_MEMORY));
-    }
+    let mut buffer = GlobalBuffer::new(size.try_into().unwrap())
+      .ok_or(LocatedErrorCode::new(ErrorCode::NOT_ENOUGH_MEMORY))?;
     let fill_buffer_ret = unsafe {
-      GetRawInputData(raw_input, RID_INPUT, p.cast(), &mut size, header_size)
+      GetRawInputData(
+        raw_input,
+        RID_INPUT,
+        buffer.as_mut_ptr().cast(),
+        &mut size,
+        header_size,
+      )
     };
     if fill_buffer_ret != size {
-      unsafe { alloc::alloc::dealloc(p, layout) }
       return Err(LocatedErrorCode::new(ErrorCode::INVALID_DATA));
     }
-    let p_slice =
-      core::ptr::slice_from_raw_parts_mut(p, size.try_into().unwrap());
-    Ok(Self(p_slice))
-  }
-}
-impl Drop for RawInputData {
-  #[inline]
-  fn drop(&mut self) {
-    let layout = Layout::from_size_align(
-      unsafe { (*self.0).len() },
-      align_of::<RAWINPUT>(),
-    )
-    .unwrap();
-    unsafe { alloc::alloc::dealloc(self.0 as *mut u8, layout) }
+    Ok(Self(buffer))
   }
 }

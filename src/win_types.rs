@@ -1,6 +1,12 @@
 #![allow(non_camel_case_types)]
 
-use core::ffi::*;
+use core::{
+  alloc::Layout,
+  ffi::*,
+  mem::align_of,
+  ops::{Deref, DerefMut},
+  ptr::NonNull,
+};
 
 pub type DWORD = c_ulong;
 pub type LPCVOID = *const c_void;
@@ -119,5 +125,38 @@ impl From<&str> for ZWString {
   #[must_use]
   fn from(value: &str) -> Self {
     Self(value.encode_utf16().chain(Some(0_u16)).collect())
+  }
+}
+
+/// GlobalAlloc buffer of bytes that's aligned to `usize`.
+#[repr(transparent)]
+pub struct GlobalBuffer(NonNull<[u8]>);
+impl GlobalBuffer {
+  pub fn new(byte_count: usize) -> Option<Self> {
+    let layout =
+      Layout::from_size_align(byte_count, align_of::<usize>()).unwrap();
+    let p: *mut u8 = unsafe { alloc::alloc::alloc_zeroed(layout) };
+    let slice_p: *mut [u8] = core::ptr::slice_from_raw_parts_mut(p, byte_count);
+    NonNull::new(slice_p).map(GlobalBuffer)
+  }
+}
+impl Deref for GlobalBuffer {
+  type Target = [u8];
+  fn deref(&self) -> &Self::Target {
+    unsafe { &*self.0.as_ptr() }
+  }
+}
+impl DerefMut for GlobalBuffer {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    unsafe { &mut *self.0.as_ptr() }
+  }
+}
+impl Drop for GlobalBuffer {
+  fn drop(&mut self) {
+    let slice_p = self.0.as_ptr();
+    let layout =
+      Layout::from_size_align(unsafe { (*slice_p).len() }, align_of::<usize>())
+        .unwrap();
+    unsafe { alloc::alloc::dealloc(slice_p as *mut u8, layout) }
   }
 }
