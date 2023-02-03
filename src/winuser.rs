@@ -1,6 +1,11 @@
-use core::{ffi::c_int, mem::size_of, ptr::null};
+use core::{
+  alloc::Layout,
+  ffi::c_int,
+  mem::{align_of, size_of},
+  ptr::{null, null_mut},
+};
 
-use crate::macros::impl_bit_ops;
+use crate::{errhandlingapi::ErrorCode, macros::impl_bit_ops};
 
 use super::{
   errhandlingapi::{get_last_error_here, LocatedErrorCode, OsResult},
@@ -55,6 +60,12 @@ extern "system" {
 
   /// MSDN: [DispatchMessageW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-dispatchmessagew)
   fn DispatchMessageW(msg: *const MSG) -> LRESULT;
+
+  /// MSDN: [GetRawInputData](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getrawinputdata)
+  fn GetRawInputData(
+    raw_input: HRAWINPUT, command: UINT, data: LPVOID, size: *mut UINT,
+    header_size: UINT,
+  ) -> UINT;
 }
 
 #[derive(Clone, Copy, Default)]
@@ -457,4 +468,140 @@ pub fn translate_message(msg: &MSG) -> BOOL {
 #[inline]
 pub fn dispatch_message(msg: &MSG) -> LRESULT {
   unsafe { DispatchMessageW(msg) }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[repr(transparent)]
+struct RawInputType(DWORD);
+impl RawInputType {
+  pub const MOUSE: Self = Self(0);
+  pub const KEYBOARD: Self = Self(1);
+  pub const HID: Self = Self(2);
+}
+impl core::fmt::Debug for RawInputType {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match *self {
+      Self::MOUSE => write!(f, "RawInputType::MOUSE"),
+      Self::KEYBOARD => write!(f, "RawInputType::KEYBOARD"),
+      Self::HID => write!(f, "RawInputType::HID"),
+      Self(other) => write!(f, "RawInputType({other}"),
+    }
+  }
+}
+
+/// MSDN: [RAWINPUTHEADER](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawinputheader)
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct RAWINPUTHEADER {
+  ty: RawInputType,
+  size: DWORD,
+  device: HANDLE,
+  w_param: WPARAM,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct RAWMOUSE_DummyStructName {
+  button_flags: USHORT,
+  button_data: USHORT,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+union RAWMOUSE_DummyUnionName {
+  buttons: ULONG,
+  dummy: RAWMOUSE_DummyStructName,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct RAWMOUSE {
+  flags: USHORT,
+  dummy: RAWMOUSE_DummyUnionName,
+  raw_buttons: ULONG,
+  last_x: LONG,
+  last_y: LONG,
+  extra_information: ULONG,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct RAWKEYBOARD {
+  make_code: USHORT,
+  flags: USHORT,
+  reserved: USHORT,
+  v_key: USHORT,
+  message: UINT,
+  extra_information: ULONG,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct RAWHID {
+  size_hid: DWORD,
+  count: DWORD,
+  raw_data: [BYTE; 1], // DANGER!! Flexable Array Member!
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+union RAWINPUT_union {
+  mouse: RAWMOUSE,
+  keyboard: RAWKEYBOARD,
+  hid: RAWHID,
+}
+
+/// MSDN: [RAWINPUT](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawinput)
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct RAWINPUT {
+  header: RAWINPUTHEADER,
+  data: RAWINPUT_union,
+}
+
+#[repr(transparent)]
+pub struct RawInputData(*mut [u8]);
+impl RawInputData {
+  #[inline]
+  #[track_caller]
+  pub fn try_new(raw_input: HRAWINPUT) -> OsResult<Self> {
+    const RID_INPUT: UINT = 0x10000003;
+    //
+    let mut size = 0;
+    let header_size: UINT = size_of::<RAWINPUTHEADER>().try_into().unwrap();
+    let get_size_ret = unsafe {
+      GetRawInputData(raw_input, RID_INPUT, null_mut(), &mut size, header_size)
+    };
+    if get_size_ret != 0 {
+      return Err(get_last_error_here());
+    }
+    let layout =
+      Layout::from_size_align(size.try_into().unwrap(), align_of::<RAWINPUT>())
+        .unwrap();
+    let p = unsafe { alloc::alloc::alloc_zeroed(layout) };
+    if p.is_null() {
+      return Err(LocatedErrorCode::new(ErrorCode::NOT_ENOUGH_MEMORY));
+    }
+    let fill_buffer_ret = unsafe {
+      GetRawInputData(raw_input, RID_INPUT, p.cast(), &mut size, header_size)
+    };
+    if fill_buffer_ret != size {
+      unsafe { alloc::alloc::dealloc(p, layout) }
+      return Err(LocatedErrorCode::new(ErrorCode::INVALID_DATA));
+    }
+    let p_slice =
+      core::ptr::slice_from_raw_parts_mut(p, size.try_into().unwrap());
+    Ok(Self(p_slice))
+  }
+}
+impl Drop for RawInputData {
+  #[inline]
+  fn drop(&mut self) {
+    let layout = Layout::from_size_align(
+      unsafe { (*self.0).len() },
+      align_of::<RAWINPUT>(),
+    )
+    .unwrap();
+    unsafe { alloc::alloc::dealloc(self.0 as *mut u8, layout) }
+  }
 }

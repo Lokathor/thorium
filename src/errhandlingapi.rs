@@ -22,6 +22,10 @@ extern "system" {
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct ErrorCode(pub DWORD);
+impl ErrorCode {
+  pub const NOT_ENOUGH_MEMORY: Self = Self(0x8);
+  pub const INVALID_DATA: Self = Self(0xD);
+}
 impl core::fmt::Debug for ErrorCode {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "ErrorCode(0x{:08X})", self.0)

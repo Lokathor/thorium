@@ -2,14 +2,7 @@
 
 use core::ptr::null_mut;
 
-use thorium::{
-  win_types::{ZWString, HMENU, HWND, LPARAM, LRESULT, UINT, WPARAM},
-  winuser::{
-    create_window, dispatch_message, get_any_message, post_quit_message,
-    register_raw_input_devices, show_window, translate_message, DefWindowProcW,
-    WinMessage, WindowClass, WindowStyle, WindowStyleExtended, RAWINPUTDEVICE,
-  },
-};
+use thorium::{win_types::*, winuser::*};
 
 fn main() {
   let win_class = WindowClass {
@@ -56,9 +49,7 @@ fn main() {
     }
   }
 
-  // Note: When DefWindowProcW handles a CLOSE message it will also destroy the
-  // window, so for now we don't need to manual destroy it.
-
+  destroy_window(hwnd).unwrap();
   atom.unregister().unwrap();
 }
 
@@ -88,8 +79,24 @@ unsafe extern "system" fn win_proc(
     }
     WinMessage::CLOSE => {
       post_quit_message(0);
-      DefWindowProcW(hwnd, msg, w_param, l_param)
+      return 0;
     }
-    _ => DefWindowProcW(hwnd, msg, w_param, l_param),
-  }
+    WinMessage::INPUT => {
+      let hrawinput = HANDLE(l_param);
+      let data = match RawInputData::try_new(hrawinput) {
+        Ok(data) => data,
+        Err(e) => {
+          println!("Err getting raw input data: {e:?}");
+          return DefWindowProcW(hwnd, msg, w_param, l_param);
+        }
+      };
+      parse_raw_input(data);
+    }
+    _ => (),
+  };
+  DefWindowProcW(hwnd, msg, w_param, l_param)
+}
+
+fn parse_raw_input(_data: RawInputData) {
+  println!("data!");
 }
