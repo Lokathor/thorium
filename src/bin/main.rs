@@ -1,9 +1,12 @@
+#![allow(unused_imports)]
+
 use core::ptr::null_mut;
 
 use thorium::{
   win_types::{ZWString, HMENU, HWND, LPARAM, LRESULT, UINT, WPARAM},
   winuser::{
-    create_window, destroy_window, register_raw_input_devices, DefWindowProcW,
+    create_window, dispatch_message, get_any_message, post_quit_message,
+    register_raw_input_devices, show_window, translate_message, DefWindowProcW,
     WinMessage, WindowClass, WindowStyle, WindowStyleExtended, RAWINPUTDEVICE,
   },
 };
@@ -37,11 +40,25 @@ fn main() {
   .unwrap();
   println!("Window Handle: {hwnd:?}");
 
-  // TODO: show window?
+  show_window(hwnd, true);
 
-  // TODO: run event loop until close.
+  loop {
+    match get_any_message() {
+      Ok(msg) => {
+        if msg.is_quit_message() {
+          break;
+        } else {
+          translate_message(&msg);
+          dispatch_message(&msg);
+        }
+      }
+      Err(e) => eprintln!("GetMessage Error: {e:?}"),
+    }
+  }
 
-  destroy_window(hwnd).unwrap();
+  // Note: When DefWindowProcW handles a CLOSE message it will also destroy the
+  // window, so for now we don't need to manual destroy it.
+
   atom.unregister().unwrap();
 }
 
@@ -68,6 +85,10 @@ unsafe extern "system" fn win_proc(
       };
       //
       return 0;
+    }
+    WinMessage::CLOSE => {
+      post_quit_message(0);
+      DefWindowProcW(hwnd, msg, w_param, l_param)
     }
     _ => DefWindowProcW(hwnd, msg, w_param, l_param),
   }

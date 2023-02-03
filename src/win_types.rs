@@ -29,6 +29,7 @@ pub type LPARAM = LONG_PTR;
 pub type LONG_PTR = isize;
 pub type LRESULT = LONG_PTR;
 pub type USHORT = c_ushort;
+pub type LONG = c_long;
 
 pub type WNDPROC_nn = unsafe extern "system" fn(
   hwnd: HWND,

@@ -1,4 +1,3 @@
-
 use core::ptr::NonNull;
 
 use super::{errhandlingapi::*, win_types::*};
@@ -36,6 +35,8 @@ impl<T: ?Sized> Drop for LocalBox<T> {
   #[inline]
   fn drop(&mut self) {
     let handle = HANDLE(self.0.as_ptr() as *mut u8 as isize);
+    // Note: I suppose we could check the return value of LocalFree if we were
+    // paranoid, i guess?
     unsafe { LocalFree(handle) };
   }
 }

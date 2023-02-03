@@ -38,6 +38,23 @@ extern "system" {
   fn RegisterRawInputDevices(
     raw_input_devices: *const RAWINPUTDEVICE, num_devices: UINT, size: UINT,
   ) -> BOOL;
+
+  /// MSDN: [ShowWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-showwindow)
+  fn ShowWindow(hwnd: HWND, cmd: int) -> BOOL;
+
+  /// MSDN: [GetMessageW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getmessagew)
+  fn GetMessageW(
+    msg: *mut MSG, hwnd: HWND, msg_filter_min: UINT, msg_filter_max: UINT,
+  ) -> BOOL;
+
+  /// MSDN: [PostQuitMessage](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-postquitmessage)
+  fn PostQuitMessage(exit_code: int);
+
+  /// MSDN: [TranslateMessage](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-translatemessage)
+  fn TranslateMessage(msg: *const MSG) -> BOOL;
+
+  /// MSDN: [DispatchMessageW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-dispatchmessagew)
+  fn DispatchMessageW(msg: *const MSG) -> LRESULT;
 }
 
 #[derive(Clone, Copy, Default)]
@@ -343,6 +360,8 @@ pub fn destroy_window(hwnd: HWND) -> OsResult<()> {
 pub struct WinMessage(pub UINT);
 impl WinMessage {
   pub const CREATE: Self = Self(0x0001);
+  pub const CLOSE: Self = Self(0x0010);
+  pub const QUIT: Self = Self(0x0012);
   pub const INPUT: Self = Self(0x00FF);
 }
 
@@ -369,4 +388,73 @@ pub fn register_raw_input_devices(devices: &[RAWINPUTDEVICE]) -> OsResult<()> {
   } else {
     Err(get_last_error_here())
   }
+}
+
+#[inline]
+pub fn show_window(hwnd: HWND, visible: bool) {
+  unsafe { ShowWindow(hwnd, visible as _) };
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct POINT {
+  pub x: LONG,
+  pub y: LONG,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct MSG {
+  // Keep these private! TranslateMessage and DispatchMessage are marked safe
+  // because users can't make up their own fake messages.
+  hwnd: HWND,
+  message: UINT,
+  w_param: WPARAM,
+  l_param: LPARAM,
+  time: DWORD,
+  pt: POINT,
+  private: DWORD,
+}
+impl MSG {
+  #[inline]
+  #[must_use]
+  pub fn is_quit_message(&self) -> bool {
+    WinMessage(self.message) == WinMessage::QUIT
+  }
+
+  #[inline]
+  fn blank() -> Self {
+    unsafe { core::mem::zeroed() }
+  }
+}
+
+/// Gets any message for this thread, regardless of if it targets a specific
+/// window or not.
+///
+/// This **blocks** until a message is returned.
+#[inline]
+#[track_caller]
+pub fn get_any_message() -> OsResult<MSG> {
+  let mut msg = MSG::blank();
+  let ret = unsafe { GetMessageW(&mut msg, HWND::null(), 0, 0) };
+  if ret.0 == -1 {
+    Err(get_last_error_here())
+  } else {
+    Ok(msg)
+  }
+}
+
+#[inline]
+pub fn post_quit_message(exit_code: int) {
+  unsafe { PostQuitMessage(exit_code) }
+}
+
+#[inline]
+pub fn translate_message(msg: &MSG) -> BOOL {
+  unsafe { TranslateMessage(msg) }
+}
+
+#[inline]
+pub fn dispatch_message(msg: &MSG) -> LRESULT {
+  unsafe { DispatchMessageW(msg) }
 }
