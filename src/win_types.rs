@@ -39,6 +39,11 @@ pub type ULONG = c_ulong;
 pub type LONG = c_long;
 pub type HRAWINPUT = HANDLE;
 pub type BYTE = u8;
+pub type UCHAR = c_uchar;
+pub type BOOLEAN = BYTE;
+
+// should probably be a newtype?
+pub type NTSTATUS = LONG;
 
 pub type WNDPROC_nn = unsafe extern "system" fn(
   hwnd: HWND,

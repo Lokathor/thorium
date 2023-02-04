@@ -2,7 +2,7 @@
 
 use core::ptr::null_mut;
 
-use thorium::{win_types::*, winuser::*};
+use thorium::{hidpi::HIDP_REPORT_TYPE, win_types::*, winuser::*};
 
 fn main() {
   let win_class = WindowClass {
@@ -97,6 +97,19 @@ unsafe extern "system" fn win_proc(
   DefWindowProcW(hwnd, msg, w_param, l_param)
 }
 
-fn parse_raw_input(_data: RawInputData) {
-  println!("data!");
+fn parse_raw_input(data: RawInputData) {
+  let handle = data.handle();
+  let preparsed_data = RawInputDevicePreparsedData::try_new(handle).unwrap();
+  let caps = preparsed_data.get_caps().unwrap();
+  println!("== {caps:?}");
+  let mut button_caps =
+    Vec::with_capacity(usize::from(caps.number_input_button_caps));
+  let button_caps_written = preparsed_data
+    .get_button_caps(HIDP_REPORT_TYPE::INPUT, button_caps.spare_capacity_mut())
+    .unwrap();
+  unsafe { button_caps.set_len(usize::from(button_caps_written)) };
+  println!("== {button_caps:?}");
+  println!("== Number Of Buttons: {}", unsafe {
+    button_caps[0].u.range.usage_max - button_caps[0].u.range.usage_min + 1
+  });
 }

@@ -1,7 +1,6 @@
 use core::{
-  alloc::Layout,
   ffi::c_int,
-  mem::{align_of, size_of},
+  mem::size_of,
   ptr::{null, null_mut},
 };
 
@@ -65,6 +64,11 @@ extern "system" {
   fn GetRawInputData(
     raw_input: HRAWINPUT, command: UINT, data: LPVOID, size: *mut UINT,
     header_size: UINT,
+  ) -> UINT;
+
+  /// MSDN: [GetRawInputDeviceInfoW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getrawinputdeviceinfow)
+  fn GetRawInputDeviceInfoW(
+    device: HANDLE, command: UINT, data: LPVOID, size: *mut UINT,
   ) -> UINT;
 }
 
@@ -560,6 +564,8 @@ struct RAWINPUT {
   data: RAWINPUT_union,
 }
 
+// TODO: be able to iterate RAWHID reports
+
 #[repr(transparent)]
 pub struct RawInputData(GlobalBuffer);
 impl RawInputData {
@@ -591,5 +597,50 @@ impl RawInputData {
       return Err(LocatedErrorCode::new(ErrorCode::INVALID_DATA));
     }
     Ok(Self(buffer))
+  }
+
+  /// Gets the raw input device handle associated with this data.
+  #[inline]
+  pub fn handle(&self) -> HANDLE {
+    let buf: &[u8] = &self.0;
+    if buf.len() < size_of::<RAWINPUTHEADER>() {
+      // this shouldn't happen, but if it does i guess we shouldn't panic
+      HANDLE::null()
+    } else {
+      unsafe { (*buf.as_ptr().cast::<RAWINPUT>()).header.device }
+    }
+  }
+}
+
+#[repr(transparent)]
+pub struct RawInputDevicePreparsedData(pub(crate) GlobalBuffer);
+impl RawInputDevicePreparsedData {
+  #[inline]
+  #[track_caller]
+  pub fn try_new(device: HANDLE) -> OsResult<Self> {
+    const RIDI_PREPARSEDDATA: UINT = 0x20000005;
+    //
+    let mut size: UINT = 0;
+    let get_required_ret = unsafe {
+      GetRawInputDeviceInfoW(device, RIDI_PREPARSEDDATA, null_mut(), &mut size)
+    };
+    if get_required_ret != 0 {
+      return Err(get_last_error_here());
+    }
+    let mut buf = GlobalBuffer::new(size.try_into().unwrap())
+      .ok_or(LocatedErrorCode::new(ErrorCode::NOT_ENOUGH_MEMORY))?;
+    let bytes_written = unsafe {
+      GetRawInputDeviceInfoW(
+        device,
+        RIDI_PREPARSEDDATA,
+        buf.as_mut_ptr().cast(),
+        &mut size,
+      )
+    };
+    if bytes_written != buf.len().try_into().unwrap() {
+      Err(get_last_error_here())
+    } else {
+      Ok(Self(buf))
+    }
   }
 }
