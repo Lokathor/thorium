@@ -624,54 +624,6 @@ impl RawInputData {
     }
   }
 
-  fn hid_reports<'a>(&'a self) -> impl Iterator<Item = &'a [u8]> + 'a {
-    let full_buffer: &[u8] = &self.0;
-    let data_buffer = if full_buffer.len() >= size_of::<RAWINPUTHEADER>() {
-      full_buffer.split_at(size_of::<RAWINPUTHEADER>()).1
-    } else {
-      return [].chunks_exact(0);
-    };
-    let (size_hid, data_buffer) = if data_buffer.len() >= size_of::<DWORD>() {
-      let (bytes, rest) = data_buffer.split_at(size_of::<DWORD>());
-      (DWORD::from_ne_bytes(bytes.try_into().unwrap()), rest)
-    } else {
-      return [].chunks_exact(0);
-    };
-    let (count, data_buffer) = if data_buffer.len() >= size_of::<DWORD>() {
-      let (bytes, rest) = data_buffer.split_at(size_of::<DWORD>());
-      (DWORD::from_ne_bytes(bytes.try_into().unwrap()), rest)
-    } else {
-      return [].chunks_exact(0);
-    };
-    debug_assert_eq!(data_buffer.len(), (size_hid * count) as usize);
-    data_buffer.chunks_exact(size_hid as usize)
-  }
-
-  fn hid_reports_mut<'a>(
-    &'a mut self,
-  ) -> impl Iterator<Item = &'a mut [u8]> + 'a {
-    let full_buffer: &mut [u8] = &mut self.0;
-    let data_buffer = if full_buffer.len() >= size_of::<RAWINPUTHEADER>() {
-      full_buffer.split_at_mut(size_of::<RAWINPUTHEADER>()).1
-    } else {
-      return [].chunks_exact_mut(0);
-    };
-    let (size_hid, data_buffer) = if data_buffer.len() >= size_of::<DWORD>() {
-      let (bytes, rest) = data_buffer.split_at_mut(size_of::<DWORD>());
-      (DWORD::from_ne_bytes(bytes.try_into().unwrap()), rest)
-    } else {
-      return [].chunks_exact_mut(0);
-    };
-    let (count, data_buffer) = if data_buffer.len() >= size_of::<DWORD>() {
-      let (bytes, rest) = data_buffer.split_at_mut(size_of::<DWORD>());
-      (DWORD::from_ne_bytes(bytes.try_into().unwrap()), rest)
-    } else {
-      return [].chunks_exact_mut(0);
-    };
-    debug_assert_eq!(data_buffer.len(), (size_hid * count) as usize);
-    data_buffer.chunks_exact_mut(size_hid as usize)
-  }
-
   pub fn hid_raw_data_mut(&mut self) -> Option<&mut [u8]> {
     if self.input_type() != RawInputType::HID {
       return None;

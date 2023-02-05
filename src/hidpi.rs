@@ -45,6 +45,14 @@ extern "system" {
     report_type: HIDP_REPORT_TYPE, usage_page: USAGE,
     preparsed_data: *mut HIDP_PREPARSED_DATA,
   ) -> ULONG;
+
+  /// MSDN: [HidP_GetUsageValue](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/hidpi/nf-hidpi-hidp_getusagevalue)
+  fn HidP_GetUsageValue(
+    report_type: HIDP_REPORT_TYPE, usage_page: USAGE, link_collection: USHORT,
+    usage: USAGE, usage_value: *mut ULONG,
+    preparsed_data: *mut HIDP_PREPARSED_DATA, report: *mut CHAR,
+    report_length: ULONG,
+  ) -> NTSTATUS;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -65,6 +73,8 @@ impl HIDP_STATUS {
   pub const INVALID_REPORT_TYPE: Self = Self(-1_072_627_710);
   pub const BUFFER_TOO_SMALL: Self = Self(-1_072_627_705);
   pub const INCOMPATIBLE_REPORT_ID: Self = Self(-1_072_627_702);
+  pub const INVALID_PREPARSED_DATA: Self = Self(-1_072_627_711);
+  pub const USAGE_NOT_FOUND: Self = Self(-1_072_627_708);
 }
 impl core::fmt::Debug for HIDP_STATUS {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -81,6 +91,12 @@ impl core::fmt::Debug for HIDP_STATUS {
       }
       Self::INCOMPATIBLE_REPORT_ID => {
         write!(f, "HIDP_STATUS::INCOMPATIBLE_REPORT_ID")
+      }
+      Self::INVALID_PREPARSED_DATA => {
+        write!(f, "HIDP_STATUS::INVALID_PREPARSED_DATA")
+      }
+      Self::USAGE_NOT_FOUND => {
+        write!(f, "HIDP_STATUS::USAGE_NOT_FOUND")
       }
       Self(other) => write!(f, "HIDP_STATUS({other})"),
     }
@@ -348,6 +364,32 @@ impl RawInputDevicePreparsedData {
     });
     if ret == HIDP_STATUS::SUCCESS {
       Ok(usage_length)
+    } else {
+      Err(ret)
+    }
+  }
+
+  pub fn get_usage_value(
+    &self, report_type: HIDP_REPORT_TYPE, usage_page: USAGE, usage: USAGE,
+    hid_report: &mut [u8],
+  ) -> Result<ULONG, HIDP_STATUS> {
+    let link_collection = 0;
+    let mut out: ULONG = 0;
+    let report_length: ULONG = hid_report.len().try_into().unwrap();
+    let ret = HIDP_STATUS(unsafe {
+      HidP_GetUsageValue(
+        report_type,
+        usage_page,
+        link_collection,
+        usage,
+        &mut out,
+        self.0.as_ptr() as _,
+        hid_report.as_mut_ptr().cast::<CHAR>(),
+        report_length,
+      )
+    });
+    if ret == HIDP_STATUS::SUCCESS {
+      Ok(out)
     } else {
       Err(ret)
     }

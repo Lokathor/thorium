@@ -125,22 +125,32 @@ fn parse_raw_input(mut data: RawInputData) {
   unsafe { value_caps.set_len(usize::from(value_caps_written)) };
   //println!("== {value_caps:#?}");
 
-  for (button_cap_index, button_cap) in button_caps.iter().enumerate() {
-    let len = preparsed_data.get_max_usage_list_length(HIDP_REPORT_TYPE::INPUT);
-    let mut button_usage_buf: Vec<USAGE> = vec![0; len];
-    match preparsed_data.get_usages(
-      HIDP_REPORT_TYPE::INPUT,
-      button_cap.usage_page,
-      &mut button_usage_buf,
-      data.hid_raw_data_mut().unwrap(),
-    ) {
-      Ok(buttons_on) => {
-        println!(
-          "button_cap {button_cap_index}: {:?}",
-          &button_usage_buf[..(buttons_on as usize)]
-        );
-      }
-      Err(e) => println!("err: {e:?}"),
+  let len = preparsed_data.get_max_usage_list_length(HIDP_REPORT_TYPE::INPUT);
+  let mut button_usage_buf: Vec<USAGE> = vec![0; len];
+  match preparsed_data.get_usages(
+    HIDP_REPORT_TYPE::INPUT,
+    button_caps[0].usage_page,
+    &mut button_usage_buf,
+    data.hid_raw_data_mut().unwrap(),
+  ) {
+    Ok(buttons_on) => {
+      button_usage_buf.truncate(buttons_on.try_into().unwrap());
     }
+    Err(e) => println!("err: {e:?}"),
+  }
+  println!("button_usage_buf: {button_usage_buf:?}");
+
+  for value_cap in value_caps.iter() {
+    let usage_value = value_cap.u.range().usage_min;
+    if usage_value == 0x32 {
+      println!("value_cap: {value_cap:?}");
+    }
+    let usage_value_state = preparsed_data.get_usage_value(
+      HIDP_REPORT_TYPE::INPUT,
+      value_cap.usage_page,
+      usage_value,
+      data.hid_raw_data_mut().unwrap(),
+    );
+    println!("0x{usage_value:02X}= {usage_value_state:?}");
   }
 }
