@@ -476,7 +476,7 @@ pub fn dispatch_message(msg: &MSG) -> LRESULT {
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 #[repr(transparent)]
-struct RawInputType(DWORD);
+pub struct RawInputType(DWORD);
 impl RawInputType {
   pub const MOUSE: Self = Self(0);
   pub const KEYBOARD: Self = Self(1);
@@ -549,6 +549,9 @@ struct RAWHID {
 }
 
 #[derive(Clone, Copy)]
+pub struct RawHidView<'a>(&'a [u8]);
+
+#[derive(Clone, Copy)]
 #[repr(C)]
 union RAWINPUT_union {
   mouse: RAWMOUSE,
@@ -608,6 +611,81 @@ impl RawInputData {
       HANDLE::null()
     } else {
       unsafe { (*buf.as_ptr().cast::<RAWINPUT>()).header.device }
+    }
+  }
+
+  #[inline]
+  pub fn input_type(&self) -> RawInputType {
+    let buf: &[u8] = &self.0;
+    if buf.len() < size_of::<RAWINPUTHEADER>() {
+      RawInputType(u32::MAX)
+    } else {
+      unsafe { (*buf.as_ptr().cast::<RAWINPUT>()).header.ty }
+    }
+  }
+
+  fn hid_reports<'a>(&'a self) -> impl Iterator<Item = &'a [u8]> + 'a {
+    let full_buffer: &[u8] = &self.0;
+    let data_buffer = if full_buffer.len() >= size_of::<RAWINPUTHEADER>() {
+      full_buffer.split_at(size_of::<RAWINPUTHEADER>()).1
+    } else {
+      return [].chunks_exact(0);
+    };
+    let (size_hid, data_buffer) = if data_buffer.len() >= size_of::<DWORD>() {
+      let (bytes, rest) = data_buffer.split_at(size_of::<DWORD>());
+      (DWORD::from_ne_bytes(bytes.try_into().unwrap()), rest)
+    } else {
+      return [].chunks_exact(0);
+    };
+    let (count, data_buffer) = if data_buffer.len() >= size_of::<DWORD>() {
+      let (bytes, rest) = data_buffer.split_at(size_of::<DWORD>());
+      (DWORD::from_ne_bytes(bytes.try_into().unwrap()), rest)
+    } else {
+      return [].chunks_exact(0);
+    };
+    debug_assert_eq!(data_buffer.len(), (size_hid * count) as usize);
+    data_buffer.chunks_exact(size_hid as usize)
+  }
+
+  fn hid_reports_mut<'a>(
+    &'a mut self,
+  ) -> impl Iterator<Item = &'a mut [u8]> + 'a {
+    let full_buffer: &mut [u8] = &mut self.0;
+    let data_buffer = if full_buffer.len() >= size_of::<RAWINPUTHEADER>() {
+      full_buffer.split_at_mut(size_of::<RAWINPUTHEADER>()).1
+    } else {
+      return [].chunks_exact_mut(0);
+    };
+    let (size_hid, data_buffer) = if data_buffer.len() >= size_of::<DWORD>() {
+      let (bytes, rest) = data_buffer.split_at_mut(size_of::<DWORD>());
+      (DWORD::from_ne_bytes(bytes.try_into().unwrap()), rest)
+    } else {
+      return [].chunks_exact_mut(0);
+    };
+    let (count, data_buffer) = if data_buffer.len() >= size_of::<DWORD>() {
+      let (bytes, rest) = data_buffer.split_at_mut(size_of::<DWORD>());
+      (DWORD::from_ne_bytes(bytes.try_into().unwrap()), rest)
+    } else {
+      return [].chunks_exact_mut(0);
+    };
+    debug_assert_eq!(data_buffer.len(), (size_hid * count) as usize);
+    data_buffer.chunks_exact_mut(size_hid as usize)
+  }
+
+  pub fn hid_raw_data_mut(&mut self) -> Option<&mut [u8]> {
+    if self.input_type() != RawInputType::HID {
+      return None;
+    }
+    let full_buffer: &mut [u8] = &mut self.0;
+    let data_buffer = if full_buffer.len() >= size_of::<RAWINPUTHEADER>() {
+      full_buffer.split_at_mut(size_of::<RAWINPUTHEADER>()).1
+    } else {
+      return None;
+    };
+    if data_buffer.len() >= (2 * size_of::<DWORD>()) {
+      Some(&mut data_buffer[(2 * size_of::<DWORD>())..])
+    } else {
+      None
     }
   }
 }

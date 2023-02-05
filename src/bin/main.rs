@@ -2,7 +2,11 @@
 
 use core::ptr::null_mut;
 
-use thorium::{hidpi::HIDP_REPORT_TYPE, win_types::*, winuser::*};
+use thorium::{
+  hidpi::{HIDP_REPORT_TYPE, USAGE},
+  win_types::*,
+  winuser::*,
+};
 
 fn main() {
   let win_class = WindowClass {
@@ -97,19 +101,46 @@ unsafe extern "system" fn win_proc(
   DefWindowProcW(hwnd, msg, w_param, l_param)
 }
 
-fn parse_raw_input(data: RawInputData) {
+fn parse_raw_input(mut data: RawInputData) {
   let handle = data.handle();
   let preparsed_data = RawInputDevicePreparsedData::try_new(handle).unwrap();
   let caps = preparsed_data.get_caps().unwrap();
-  println!("== {caps:?}");
+  //println!("== {caps:?}");
+
+  // TODO: wrap this up tighter.
   let mut button_caps =
     Vec::with_capacity(usize::from(caps.number_input_button_caps));
   let button_caps_written = preparsed_data
     .get_button_caps(HIDP_REPORT_TYPE::INPUT, button_caps.spare_capacity_mut())
     .unwrap();
   unsafe { button_caps.set_len(usize::from(button_caps_written)) };
-  println!("== {button_caps:?}");
-  println!("== Number Of Buttons: {}", unsafe {
-    button_caps[0].u.range.usage_max - button_caps[0].u.range.usage_min + 1
-  });
+  //println!("== {button_caps:?}");
+
+  // TODO: wrap this up tighter.
+  let mut value_caps =
+    Vec::with_capacity(usize::from(caps.number_input_value_caps));
+  let value_caps_written = preparsed_data
+    .get_value_caps(HIDP_REPORT_TYPE::INPUT, value_caps.spare_capacity_mut())
+    .unwrap();
+  unsafe { value_caps.set_len(usize::from(value_caps_written)) };
+  //println!("== {value_caps:#?}");
+
+  for (button_cap_index, button_cap) in button_caps.iter().enumerate() {
+    let len = preparsed_data.get_max_usage_list_length(HIDP_REPORT_TYPE::INPUT);
+    let mut button_usage_buf: Vec<USAGE> = vec![0; len];
+    match preparsed_data.get_usages(
+      HIDP_REPORT_TYPE::INPUT,
+      button_cap.usage_page,
+      &mut button_usage_buf,
+      data.hid_raw_data_mut().unwrap(),
+    ) {
+      Ok(buttons_on) => {
+        println!(
+          "button_cap {button_cap_index}: {:?}",
+          &button_usage_buf[..(buttons_on as usize)]
+        );
+      }
+      Err(e) => println!("err: {e:?}"),
+    }
+  }
 }

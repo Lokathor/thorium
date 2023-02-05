@@ -41,6 +41,7 @@ pub type HRAWINPUT = HANDLE;
 pub type BYTE = u8;
 pub type UCHAR = c_uchar;
 pub type BOOLEAN = BYTE;
+pub type CHAR = c_char;
 
 // should probably be a newtype?
 pub type NTSTATUS = LONG;
