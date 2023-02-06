@@ -32,25 +32,25 @@ extern "system" {
     value_caps_length: *mut USHORT, preparsed_data: *mut HIDP_PREPARSED_DATA,
   ) -> NTSTATUS;
 
-  /// MSDN: [HidP_GetUsages](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/hidpi/nf-hidpi-hidp_getusages)
-  fn HidP_GetUsages(
-    report_type: HIDP_REPORT_TYPE, usage_page: USAGE, link_collection: USHORT,
-    usage_list: *mut USAGE, usage_length: *mut ULONG,
-    preparsed_data: *mut HIDP_PREPARSED_DATA, report: *mut CHAR,
-    report_length: ULONG,
-  ) -> NTSTATUS;
-
   /// MSDN: [HidP_MaxUsageListLength](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/hidpi/nf-hidpi-hidp_maxusagelistlength)
   fn HidP_MaxUsageListLength(
     report_type: HIDP_REPORT_TYPE, usage_page: USAGE,
     preparsed_data: *mut HIDP_PREPARSED_DATA,
   ) -> ULONG;
 
+  /// MSDN: [HidP_GetUsages](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/hidpi/nf-hidpi-hidp_getusages)
+  fn HidP_GetUsages(
+    report_type: HIDP_REPORT_TYPE, usage_page: USAGE, link_collection: USHORT,
+    usage_list: *mut USAGE, usage_length: *mut ULONG,
+    preparsed_data: *mut HIDP_PREPARSED_DATA, report: *const CHAR,
+    report_length: ULONG,
+  ) -> NTSTATUS;
+
   /// MSDN: [HidP_GetUsageValue](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/hidpi/nf-hidpi-hidp_getusagevalue)
   fn HidP_GetUsageValue(
     report_type: HIDP_REPORT_TYPE, usage_page: USAGE, link_collection: USHORT,
     usage: USAGE, usage_value: *mut ULONG,
-    preparsed_data: *mut HIDP_PREPARSED_DATA, report: *mut CHAR,
+    preparsed_data: *mut HIDP_PREPARSED_DATA, report: *const CHAR,
     report_length: ULONG,
   ) -> NTSTATUS;
 }
@@ -62,6 +62,23 @@ impl HIDP_REPORT_TYPE {
   pub const INPUT: Self = Self(0);
   pub const OUTPUT: Self = Self(1);
   pub const FEATURE: Self = Self(2);
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[repr(transparent)]
+pub struct HidUsagePage(pub USAGE);
+impl HidUsagePage {
+  pub const GENERIC_DESKTOP: Self = Self(0x01);
+  pub const BUTTONS: Self = Self(0x09);
+}
+impl core::fmt::Debug for HidUsagePage {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match *self {
+      Self::GENERIC_DESKTOP => write!(f, "HidUsagePage::GENERIC_DESKTOP"),
+      Self::BUTTONS => write!(f, "HidUsagePage::BUTTONS"),
+      other => write!(f, "HidUsagePage({:02X})", other.0),
+    }
+  }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -112,7 +129,7 @@ const HIDP_STATUS_SUCCESS: NTSTATUS = 1_114_112i32;
 #[repr(C)]
 pub struct HIDP_CAPS {
   pub usage: USAGE,
-  pub usage_page: USAGE,
+  pub usage_page: HidUsagePage,
   pub input_report_byte_length: USHORT,
   pub output_report_byte_length: USHORT,
   pub feature_report_byte_length: USHORT,
@@ -177,7 +194,7 @@ impl CapsRangeNotRange {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct HIDP_BUTTON_CAPS {
-  pub usage_page: USAGE,
+  pub usage_page: HidUsagePage,
   pub report_id: UCHAR,
   pub is_alias: BOOLEAN,
   pub bit_field: USHORT,
@@ -220,7 +237,7 @@ impl core::fmt::Debug for HIDP_BUTTON_CAPS {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct HIDP_VALUE_CAPS {
-  pub usage_page: USAGE,
+  pub usage_page: HidUsagePage,
   pub report_id: UCHAR,
   pub is_alias: BOOLEAN,
   pub bit_field: USHORT,
@@ -344,8 +361,8 @@ impl RawInputDevicePreparsedData {
 
   #[inline]
   pub fn get_usages(
-    &self, report_type: HIDP_REPORT_TYPE, usage_page: USAGE,
-    usages: &mut [USAGE], hid_report: &mut [u8],
+    &self, report_type: HIDP_REPORT_TYPE, usage_page: HidUsagePage,
+    usages: &mut [USAGE], hid_report: &[u8],
   ) -> Result<ULONG, HIDP_STATUS> {
     let link_collection = 0; // handle this later?
     let mut usage_length: ULONG = usages.len().try_into().unwrap();
@@ -353,12 +370,12 @@ impl RawInputDevicePreparsedData {
     let ret = HIDP_STATUS(unsafe {
       HidP_GetUsages(
         report_type,
-        usage_page,
+        usage_page.0,
         link_collection,
         usages.as_mut_ptr(),
         &mut usage_length,
         self.0.as_ptr() as _,
-        hid_report.as_mut_ptr().cast::<CHAR>(),
+        hid_report.as_ptr().cast::<CHAR>(),
         report_length,
       )
     });
@@ -370,8 +387,8 @@ impl RawInputDevicePreparsedData {
   }
 
   pub fn get_usage_value(
-    &self, report_type: HIDP_REPORT_TYPE, usage_page: USAGE, usage: USAGE,
-    hid_report: &mut [u8],
+    &self, report_type: HIDP_REPORT_TYPE, usage_page: HidUsagePage,
+    usage: USAGE, hid_report: &[u8],
   ) -> Result<ULONG, HIDP_STATUS> {
     let link_collection = 0;
     let mut out: ULONG = 0;
@@ -379,12 +396,12 @@ impl RawInputDevicePreparsedData {
     let ret = HIDP_STATUS(unsafe {
       HidP_GetUsageValue(
         report_type,
-        usage_page,
+        usage_page.0,
         link_collection,
         usage,
         &mut out,
         self.0.as_ptr() as _,
-        hid_report.as_mut_ptr().cast::<CHAR>(),
+        hid_report.as_ptr().cast::<CHAR>(),
         report_length,
       )
     });

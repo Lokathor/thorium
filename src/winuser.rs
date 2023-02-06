@@ -1,5 +1,5 @@
 use core::{
-  ffi::c_int,
+  ffi::{c_int, c_void},
   mem::size_of,
   ptr::{null, null_mut},
 };
@@ -377,6 +377,7 @@ impl WinMessage {
   pub const CREATE: Self = Self(0x0001);
   pub const CLOSE: Self = Self(0x0010);
   pub const QUIT: Self = Self(0x0012);
+  pub const INPUT_DEVICE_CHANGE: Self = Self(0x00FE);
   pub const INPUT: Self = Self(0x00FF);
 }
 
@@ -567,41 +568,69 @@ struct RAWINPUT {
   data: RAWINPUT_union,
 }
 
-// TODO: be able to iterate RAWHID reports
+/// Gets the required buffer size for [get_raw_input_data] to be successful.
+#[inline]
+#[track_caller]
+pub fn get_raw_input_data_required_buffer_size(
+  raw_input: HRAWINPUT,
+) -> OsResult<usize> {
+  const RID_INPUT: UINT = 0x10000003;
+  const RAWINPUTHEADER_SIZE: UINT = size_of::<RAWINPUTHEADER>() as u32;
+  //
+  let mut size: UINT = 0;
+  let ret = unsafe {
+    GetRawInputData(
+      raw_input,
+      RID_INPUT,
+      null_mut(),
+      &mut size,
+      RAWINPUTHEADER_SIZE,
+    )
+  };
+  if ret != UINT::MAX {
+    Ok(size.try_into().unwrap())
+  } else {
+    Err(get_last_error_here())
+  }
+}
+
+/// Copes the RawInput data into the buffer, returning the byte count written.
+///
+/// To determine the required buffer size call
+/// [get_raw_input_data_required_buffer_size].
+#[inline]
+#[track_caller]
+pub fn get_raw_input_data(
+  raw_input: HRAWINPUT, buf: &mut [u8],
+) -> OsResult<&RawInputData> {
+  const RID_INPUT: UINT = 0x10000003;
+  const RAWINPUTHEADER_SIZE: UINT = size_of::<RAWINPUTHEADER>() as u32;
+  //
+  let mut size: UINT = buf.len().try_into().unwrap();
+  let ret = unsafe {
+    GetRawInputData(
+      raw_input,
+      RID_INPUT,
+      buf.as_mut_ptr().cast::<c_void>(),
+      &mut size,
+      RAWINPUTHEADER_SIZE,
+    )
+  };
+  if ret != UINT::MAX {
+    let size_usize: usize = size.try_into().unwrap();
+    let buf_sized: &[u8] = &buf[..size_usize];
+    let raw_input_data: &RawInputData =
+      unsafe { core::mem::transmute(buf_sized) };
+    Ok(raw_input_data)
+  } else {
+    Err(get_last_error_here())
+  }
+}
 
 #[repr(transparent)]
-pub struct RawInputData(GlobalBuffer);
-impl RawInputData {
-  #[inline]
-  #[track_caller]
-  pub fn try_new(raw_input: HRAWINPUT) -> OsResult<Self> {
-    const RID_INPUT: UINT = 0x10000003;
-    //
-    let mut size = 0;
-    let header_size: UINT = size_of::<RAWINPUTHEADER>().try_into().unwrap();
-    let get_size_ret = unsafe {
-      GetRawInputData(raw_input, RID_INPUT, null_mut(), &mut size, header_size)
-    };
-    if get_size_ret != 0 {
-      return Err(get_last_error_here());
-    }
-    let mut buffer = GlobalBuffer::new(size.try_into().unwrap())
-      .ok_or(LocatedErrorCode::new(ErrorCode::NOT_ENOUGH_MEMORY))?;
-    let fill_buffer_ret = unsafe {
-      GetRawInputData(
-        raw_input,
-        RID_INPUT,
-        buffer.as_mut_ptr().cast(),
-        &mut size,
-        header_size,
-      )
-    };
-    if fill_buffer_ret != size {
-      return Err(LocatedErrorCode::new(ErrorCode::INVALID_DATA));
-    }
-    Ok(Self(buffer))
-  }
+pub struct RawInputData([u8]);
 
+impl RawInputData {
   /// Gets the raw input device handle associated with this data.
   #[inline]
   pub fn handle(&self) -> HANDLE {
@@ -624,24 +653,57 @@ impl RawInputData {
     }
   }
 
-  pub fn hid_raw_data_mut(&mut self) -> Option<&mut [u8]> {
+  /// `self.hid.size_hid`, fails if this isn't an HID
+  #[inline]
+  pub fn hid_size_hid(&self) -> Option<DWORD> {
     if self.input_type() != RawInputType::HID {
       return None;
     }
-    let full_buffer: &mut [u8] = &mut self.0;
+    let full_buffer: &[u8] = &self.0;
     let data_buffer = if full_buffer.len() >= size_of::<RAWINPUTHEADER>() {
-      full_buffer.split_at_mut(size_of::<RAWINPUTHEADER>()).1
+      full_buffer.split_at(size_of::<RAWINPUTHEADER>()).1
+    } else {
+      return None;
+    };
+    Some(DWORD::from_ne_bytes(data_buffer[0..4].try_into().unwrap()))
+  }
+
+  /// `self.hid.count`, fails if this isn't an HID
+  #[inline]
+  pub fn hid_count(&self) -> Option<DWORD> {
+    if self.input_type() != RawInputType::HID {
+      return None;
+    }
+    let full_buffer: &[u8] = &self.0;
+    let data_buffer = if full_buffer.len() >= size_of::<RAWINPUTHEADER>() {
+      full_buffer.split_at(size_of::<RAWINPUTHEADER>()).1
+    } else {
+      return None;
+    };
+    Some(DWORD::from_ne_bytes(data_buffer[4..8].try_into().unwrap()))
+  }
+
+  /// `self.hid.raw_data`, fails if this isn't an HID
+  #[inline]
+  pub fn hid_raw_data(&self) -> Option<&[u8]> {
+    if self.input_type() != RawInputType::HID {
+      return None;
+    }
+    let full_buffer: &[u8] = &self.0;
+    let data_buffer = if full_buffer.len() >= size_of::<RAWINPUTHEADER>() {
+      full_buffer.split_at(size_of::<RAWINPUTHEADER>()).1
     } else {
       return None;
     };
     if data_buffer.len() >= (2 * size_of::<DWORD>()) {
-      Some(&mut data_buffer[(2 * size_of::<DWORD>())..])
+      Some(&data_buffer[(2 * size_of::<DWORD>())..])
     } else {
       None
     }
   }
 }
 
+#[derive(Clone)]
 #[repr(transparent)]
 pub struct RawInputDevicePreparsedData(pub(crate) GlobalBuffer);
 impl RawInputDevicePreparsedData {

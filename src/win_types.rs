@@ -166,3 +166,10 @@ impl Drop for GlobalBuffer {
     unsafe { alloc::alloc::dealloc(slice_p as *mut u8, layout) }
   }
 }
+impl Clone for GlobalBuffer {
+  fn clone(&self) -> Self {
+    let mut the_clone = Self::new(self.len()).unwrap();
+    the_clone.copy_from_slice(&self);
+    the_clone
+  }
+}
