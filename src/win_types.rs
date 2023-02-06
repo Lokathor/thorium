@@ -40,7 +40,6 @@ pub type LONG = c_long;
 pub type HRAWINPUT = HANDLE;
 pub type BYTE = u8;
 pub type UCHAR = c_uchar;
-pub type BOOLEAN = BYTE;
 pub type CHAR = c_char;
 
 // should probably be a newtype?
@@ -54,7 +53,7 @@ pub type WNDPROC_nn = unsafe extern "system" fn(
 ) -> LRESULT;
 pub type WNDPROC = Option<WNDPROC_nn>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct BOOL(pub int);
 impl From<bool> for BOOL {
@@ -69,6 +68,36 @@ impl From<BOOL> for bool {
   #[must_use]
   fn from(value: BOOL) -> Self {
     value.0 != 0
+  }
+}
+impl core::fmt::Debug for BOOL {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let b: bool = (*self).into();
+    core::fmt::Debug::fmt(&b, f)
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct BOOLEAN(pub BYTE);
+impl From<bool> for BOOLEAN {
+  #[inline]
+  #[must_use]
+  fn from(value: bool) -> Self {
+    BOOLEAN(value as BYTE)
+  }
+}
+impl From<BOOLEAN> for bool {
+  #[inline]
+  #[must_use]
+  fn from(value: BOOLEAN) -> Self {
+    value.0 != 0
+  }
+}
+impl core::fmt::Debug for BOOLEAN {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let b: bool = (*self).into();
+    core::fmt::Debug::fmt(&b, f)
   }
 }
 

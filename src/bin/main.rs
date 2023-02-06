@@ -2,14 +2,7 @@
 
 use core::ptr::null_mut;
 
-use thorium::{
-  errhandlingapi::OsResult,
-  hidpi::{
-    HIDP_BUTTON_CAPS, HIDP_CAPS, HIDP_REPORT_TYPE, HIDP_VALUE_CAPS, USAGE,
-  },
-  win_types::*,
-  winuser::*,
-};
+use thorium::{errhandlingapi::OsResult, hidpi::*, win_types::*, winuser::*};
 
 fn main() {
   let win_class = WindowClass {
@@ -66,48 +59,61 @@ std::thread_local! {
   /// Should only be used during WM_INPUT as a place to copy the data to.
   static RAW_INPUT_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
 
-  static CAP_DATABASE: RefCell<HashMap<HANDLE, HidCapabilities>> = RefCell::new(HashMap::new());
+  static CAP_DATABASE: RefCell<HashMap<HANDLE, HidInfo>> = RefCell::new(HashMap::new());
 }
 
-struct HidCapabilities {
+struct HidInfo {
+  handle: HANDLE,
   preparsed_data: RawInputDevicePreparsedData,
-  caps: HIDP_CAPS,
-  button_caps: Vec<HIDP_BUTTON_CAPS>,
-  value_caps: Vec<HIDP_VALUE_CAPS>,
+  caps: HidpCaps,
+  input_button_caps: Box<[HidpButtonCaps]>,
+  input_value_caps: Box<[HidpValueCaps]>,
 }
-impl core::fmt::Debug for HidCapabilities {
+impl core::fmt::Debug for HidInfo {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let mut x = f.debug_struct("Capabilities");
+    let mut x = f.debug_struct("HidInfo");
     x.field("preparsed_data", &"[...]");
     x.field("caps", &self.caps);
-    x.field("button_caps", &self.button_caps);
-    x.field("value_caps", &self.value_caps);
+    x.field("input_button_caps", &self.input_button_caps);
+    x.field("input_value_caps", &self.input_value_caps);
     x.finish()
   }
 }
-impl HidCapabilities {
-  pub fn try_new(handle: HANDLE) -> OsResult<Self> {
-    let preparsed_data = RawInputDevicePreparsedData::try_new(handle)?;
+impl HidInfo {
+  pub fn try_new(
+    handle: HANDLE, preparsed_data: RawInputDevicePreparsedData,
+  ) -> HidpResult<Self> {
+    let caps = hidp_get_caps(&preparsed_data)?;
     //
-    let caps = preparsed_data.get_caps()?;
+    let input_button_caps = {
+      let num_input_buttons = usize::from(caps.number_input_button_caps);
+      let mut buf: Vec<HidpButtonCaps> = Vec::with_capacity(num_input_buttons);
+      Vec::from(hidp_get_button_caps(
+        HidpReportType::INPUT,
+        buf.spare_capacity_mut(),
+        &preparsed_data,
+      )?)
+      .into_boxed_slice()
+    };
     //
-    let mut button_caps =
-      Vec::with_capacity(usize::from(caps.number_input_button_caps));
-    let button_caps_written = preparsed_data.get_button_caps(
-      HIDP_REPORT_TYPE::INPUT,
-      button_caps.spare_capacity_mut(),
-    )?;
-    unsafe { button_caps.set_len(usize::from(button_caps_written)) };
+    let input_value_caps = {
+      let num_input_values = usize::from(caps.number_input_value_caps);
+      let mut buf: Vec<HidpValueCaps> = Vec::with_capacity(num_input_values);
+      Vec::from(hidp_get_value_caps(
+        HidpReportType::INPUT,
+        buf.spare_capacity_mut(),
+        &preparsed_data,
+      )?)
+      .into_boxed_slice()
+    };
     //
-    let mut value_caps =
-      Vec::with_capacity(usize::from(caps.number_input_value_caps));
-    let value_caps_written = preparsed_data.get_value_caps(
-      HIDP_REPORT_TYPE::INPUT,
-      value_caps.spare_capacity_mut(),
-    )?;
-    unsafe { value_caps.set_len(usize::from(value_caps_written)) };
-    //
-    Ok(Self { preparsed_data, caps, button_caps, value_caps })
+    Ok(Self {
+      handle,
+      preparsed_data,
+      caps,
+      input_button_caps,
+      input_value_caps,
+    })
   }
 }
 
@@ -151,23 +157,32 @@ unsafe extern "system" fn win_proc(
       let handle = HANDLE(l_param);
       if added {
         println!("INPUT_DEVICE_CHANGE added: {handle:?}");
-        CAP_DATABASE.with(|ref_cell| {
-          let db: &mut HashMap<_, _> = &mut *ref_cell.borrow_mut();
-          match HidCapabilities::try_new(handle) {
-            Ok(hid_caps) => {
-              println!("got all caps info:");
-              println!("=caps: {:?}", hid_caps.caps);
-              for (i, button_cap) in hid_caps.button_caps.iter().enumerate() {
-                println!("=buttons[{i}]: {button_cap:?}");
-              }
-              for (i, value_cap) in hid_caps.value_caps.iter().enumerate() {
-                println!("=values[{i}]: {value_cap:?}");
-              }
-              db.insert(handle, hid_caps);
-            }
-            Err(e) => println!("Err getting caps for new device: {e:?}"),
+        let preparsed_data = match RawInputDevicePreparsedData::try_new(handle)
+        {
+          Ok(preparsed_data) => preparsed_data,
+          Err(e) => {
+            println!("Couldn't get preparsed data for {handle:?}: {e:?}");
+            return DefWindowProcW(hwnd, msg, w_param, l_param);
           }
-        });
+        };
+        match HidInfo::try_new(handle, preparsed_data) {
+          Ok(hid_caps) => {
+            println!("got all caps info:");
+            println!("=caps: {:?}", hid_caps.caps);
+            for (i, button_cap) in hid_caps.input_button_caps.iter().enumerate()
+            {
+              println!("=buttons[{i}]: {button_cap:?}");
+            }
+            for (i, value_cap) in hid_caps.input_value_caps.iter().enumerate() {
+              println!("=values[{i}]: {value_cap:?}");
+            }
+            CAP_DATABASE.with(|ref_cell| {
+              let db: &mut HashMap<_, _> = &mut *ref_cell.borrow_mut();
+              db.insert(handle, hid_caps);
+            });
+          }
+          Err(e) => println!("Err getting caps for new device: {e:?}"),
+        }
       } else {
         println!("INPUT_DEVICE_CHANGE removed: {handle:?}");
         CAP_DATABASE.with(|ref_cell| {
@@ -175,6 +190,7 @@ unsafe extern "system" fn win_proc(
           db.remove(&handle);
         });
       }
+      //panic!();
       return 0;
     }
     WinMessage::INPUT => {
@@ -207,52 +223,76 @@ unsafe extern "system" fn win_proc(
 
 fn parse_raw_input(data: &RawInputData) {
   let handle = data.handle();
-  // TODO: handle multiple reports per input data packet.
+
+  if data.hid_count().unwrap() > 1 {
+    // TODO: right now the program doesn't handle multi-report data properly!
+    return;
+  }
+  let report = data.hid_raw_data().unwrap();
 
   CAP_DATABASE.with(|ref_cell| {
-    let db: &mut HashMap<_, _> = &mut *ref_cell.borrow_mut();
-    let Some(hid_capabilities) = db.get(&handle) else {
+    let db: &HashMap<_, _> = &*ref_cell.borrow();
+    let Some(hid) = db.get(&handle) else {
       return;
     };
 
     // BUTTONS
-    let len = hid_capabilities
-      .preparsed_data
-      .get_max_usage_list_length(HIDP_REPORT_TYPE::INPUT);
-    let mut button_usage_buf: Vec<USAGE> = vec![0; len];
-    match hid_capabilities.preparsed_data.get_usages(
-      HIDP_REPORT_TYPE::INPUT,
-      hid_capabilities.button_caps[0].usage_page,
-      &mut button_usage_buf,
-      data.hid_raw_data().unwrap(),
-    ) {
-      Ok(buttons_on) => {
-        button_usage_buf.truncate(buttons_on.try_into().unwrap());
-      }
-      Err(e) => println!("err: {e:?}"),
-    }
-    println!("Buttons: {button_usage_buf:?}");
+    let len = hidp_max_button_list_length(
+      HidpReportType::INPUT,
+      HidUsagePage::BUTTONS,
+      &hid.preparsed_data,
+    );
+    let mut buf: Vec<USAGE> = vec![0; len];
+    let pressed_result = hidp_get_buttons(
+      HidpReportType::INPUT,
+      HidUsagePage::BUTTONS,
+      0,
+      &mut buf,
+      &hid.preparsed_data,
+      report,
+    );
+    println!("Get Buttons: {pressed_result:?}");
 
     // AXISES
-    print!("Axises: ");
-    for value_cap in hid_capabilities.value_caps.iter() {
-      let usage = value_cap.u.not_range().usage;
-      let usage_state = hid_capabilities.preparsed_data.get_usage_value(
-        HIDP_REPORT_TYPE::INPUT,
-        value_cap.usage_page,
-        usage,
-        data.hid_raw_data().unwrap(),
-      );
-      //#[cfg(FALSE)]
-      match usage {
-        0x30 => print!("X= {usage_state:?}, "),
-        0x31 => print!("Y= {usage_state:?}, "),
-        0x32 => print!("Z= {usage_state:?}, "),
-        0x35 => print!("Rz= {usage_state:?}, "),
-        0x39 => print!("Hat= {usage_state:?}, "),
-        _ => print!("0x{usage:02X}= {usage_state:?}, "),
-      }
-    }
-    println!();
+    let value_results: Vec<_> = hid
+      .input_value_caps
+      .iter()
+      .map(|value_cap| {
+        let usage = value_cap.u.not_range().usage;
+        let usage_str = match usage {
+          0x30 => "X",
+          0x31 => "Y",
+          0x32 => "Z",
+          0x33 => "Rx",
+          0x34 => "Ry",
+          0x35 => "Rz",
+          0x36 => "Slider",
+          0x37 => "Dial",
+          0x38 => "Wheel",
+          0x39 => "Hat",
+          _ => "?",
+        };
+        let value = hidp_get_usage_value(
+          HidpReportType::INPUT,
+          value_cap.usage_page,
+          0,
+          usage,
+          &hid.preparsed_data,
+          report,
+        )
+        .map(|value| {
+          let value = value as i32;
+          // this scaling function doesn't properly account for minimums that
+          // aren't zero!
+          if value >= value_cap.logical_min && value <= value_cap.logical_max {
+            value as f32 / value_cap.logical_max as f32
+          } else {
+            -1.0
+          }
+        });
+        (usage_str, value)
+      })
+      .collect();
+    println!("Get Values: {value_results:?}");
   });
 }
