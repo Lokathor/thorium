@@ -207,6 +207,8 @@ unsafe extern "system" fn win_proc(
 
 fn parse_raw_input(data: &RawInputData) {
   let handle = data.handle();
+  // TODO: handle multiple reports per input data packet.
+
   CAP_DATABASE.with(|ref_cell| {
     let db: &mut HashMap<_, _> = &mut *ref_cell.borrow_mut();
     let Some(hid_capabilities) = db.get(&handle) else {
@@ -234,21 +236,21 @@ fn parse_raw_input(data: &RawInputData) {
     // AXISES
     print!("Axises: ");
     for value_cap in hid_capabilities.value_caps.iter() {
-      let usage_value = value_cap.u.range().usage_min;
-      let usage_value_state = hid_capabilities.preparsed_data.get_usage_value(
+      let usage = value_cap.u.not_range().usage;
+      let usage_state = hid_capabilities.preparsed_data.get_usage_value(
         HIDP_REPORT_TYPE::INPUT,
         value_cap.usage_page,
-        usage_value,
+        usage,
         data.hid_raw_data().unwrap(),
       );
       //#[cfg(FALSE)]
-      match usage_value {
-        0x30 => print!("X= {usage_value_state:?}, "),
-        0x31 => print!("Y= {usage_value_state:?}, "),
-        0x32 => print!("Z= {usage_value_state:?}, "),
-        0x35 => print!("Rz= {usage_value_state:?}, "),
-        0x39 => print!("Hat= {usage_value_state:?}, "),
-        _ => print!("0x{usage_value:02X}= {usage_value_state:?}, "),
+      match usage {
+        0x30 => print!("X= {usage_state:?}, "),
+        0x31 => print!("Y= {usage_state:?}, "),
+        0x32 => print!("Z= {usage_state:?}, "),
+        0x35 => print!("Rz= {usage_state:?}, "),
+        0x39 => print!("Hat= {usage_state:?}, "),
+        _ => print!("0x{usage:02X}= {usage_state:?}, "),
       }
     }
     println!();
