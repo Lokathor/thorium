@@ -11,6 +11,7 @@ use core::{
 pub type DWORD = c_ulong;
 pub type LPCVOID = *const c_void;
 pub type LPVOID = *mut c_void;
+pub type PVOID = *mut c_void;
 pub type LPWSTR = *mut WCHAR;
 pub type WCHAR = wchar_t;
 pub type wchar_t = u16;

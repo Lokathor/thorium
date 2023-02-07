@@ -2,7 +2,9 @@
 
 use core::ptr::null_mut;
 
-use thorium::{errhandlingapi::OsResult, hidpi::*, win_types::*, winuser::*};
+use thorium::{
+  errhandlingapi::OsResult, hidpi::*, hidsdi::*, win_types::*, winuser::*,
+};
 
 fn main() {
   let win_class = WindowClass {
@@ -157,6 +159,7 @@ unsafe extern "system" fn win_proc(
       let handle = HANDLE(l_param);
       if added {
         println!("INPUT_DEVICE_CHANGE added: {handle:?}");
+        println!("name: {:?}", get_raw_input_device_name(handle));
         let preparsed_data = match RawInputDevicePreparsedData::try_new(handle)
         {
           Ok(preparsed_data) => preparsed_data,
@@ -251,7 +254,7 @@ fn parse_raw_input(data: &RawInputData) {
       &hid.preparsed_data,
       report,
     );
-    println!("Get Buttons: {pressed_result:?}");
+    //println!("Get Buttons: {pressed_result:?}");
 
     // AXISES
     let value_results: Vec<_> = hid
@@ -293,6 +296,6 @@ fn parse_raw_input(data: &RawInputData) {
         (usage_str, value)
       })
       .collect();
-    println!("Get Values: {value_results:?}");
+    //println!("Get Values: {value_results:?}");
   });
 }

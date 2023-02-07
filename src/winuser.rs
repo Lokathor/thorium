@@ -4,7 +4,9 @@ use core::{
   ptr::{null, null_mut},
 };
 
-use crate::{errhandlingapi::ErrorCode, macros::impl_bit_ops};
+use crate::{
+  errhandlingapi::ErrorCode, macros::impl_bit_ops, string_from_utf16,
+};
 
 use super::{
   errhandlingapi::{get_last_error_here, LocatedErrorCode, OsResult},
@@ -734,5 +736,35 @@ impl RawInputDevicePreparsedData {
     } else {
       Ok(Self(buf))
     }
+  }
+}
+
+#[inline]
+#[track_caller]
+pub fn get_raw_input_device_name(device: HANDLE) -> OsResult<String> {
+  const RIDI_DEVICENAME: UINT = 0x20000007;
+  //
+  let mut char_count: UINT = 0;
+  let get_required_ret = unsafe {
+    GetRawInputDeviceInfoW(device, RIDI_DEVICENAME, null_mut(), &mut char_count)
+  };
+  if get_required_ret != 0 {
+    return Err(get_last_error_here());
+  }
+  let mut buf: Vec<u16> = Vec::with_capacity(char_count.try_into().unwrap());
+  let bytes_written = unsafe {
+    GetRawInputDeviceInfoW(
+      device,
+      RIDI_DEVICENAME,
+      buf.as_mut_ptr().cast(),
+      &mut char_count,
+    )
+  };
+  if bytes_written == u32::MAX {
+    Err(get_last_error_here())
+  } else {
+    // count is -1 because the last unit is the 0 terminator
+    unsafe { buf.set_len(char_count.saturating_sub(1).try_into().unwrap()) };
+    Ok(string_from_utf16(&buf))
   }
 }
