@@ -65,7 +65,6 @@ std::thread_local! {
 }
 
 struct HidInfo {
-  handle: HANDLE,
   preparsed_data: RawInputDevicePreparsedData,
   caps: HidpCaps,
   input_button_caps: Box<[HidpButtonCaps]>,
@@ -83,7 +82,7 @@ impl core::fmt::Debug for HidInfo {
 }
 impl HidInfo {
   pub fn try_new(
-    handle: HANDLE, preparsed_data: RawInputDevicePreparsedData,
+    preparsed_data: RawInputDevicePreparsedData,
   ) -> HidpResult<Self> {
     let caps = hidp_get_caps(&preparsed_data)?;
     //
@@ -109,13 +108,7 @@ impl HidInfo {
       .into_boxed_slice()
     };
     //
-    Ok(Self {
-      handle,
-      preparsed_data,
-      caps,
-      input_button_caps,
-      input_value_caps,
-    })
+    Ok(Self { preparsed_data, caps, input_button_caps, input_value_caps })
   }
 }
 
@@ -160,6 +153,7 @@ unsafe extern "system" fn win_proc(
       if added {
         println!("INPUT_DEVICE_CHANGE added: {handle:?}");
         println!("name: {:?}", get_raw_input_device_name(handle));
+        println!("info: {:?}", get_raw_input_device_info(handle));
         let preparsed_data = match RawInputDevicePreparsedData::try_new(handle)
         {
           Ok(preparsed_data) => preparsed_data,
@@ -168,7 +162,7 @@ unsafe extern "system" fn win_proc(
             return DefWindowProcW(hwnd, msg, w_param, l_param);
           }
         };
-        match HidInfo::try_new(handle, preparsed_data) {
+        match HidInfo::try_new(preparsed_data) {
           Ok(hid_caps) => {
             println!("got all caps info:");
             println!("=caps: {:?}", hid_caps.caps);
@@ -224,6 +218,7 @@ unsafe extern "system" fn win_proc(
   DefWindowProcW(hwnd, msg, w_param, l_param)
 }
 
+#[allow(unused)]
 fn parse_raw_input(data: &RawInputData) {
   let handle = data.handle();
 

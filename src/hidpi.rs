@@ -69,6 +69,7 @@ extern "system" {
   ) -> HidpStatus;
 }
 
+#[allow(missing_docs)]
 pub type HidpResult<T> = Result<T, HidpStatus>;
 
 /// Reads the Preparsed Data to determine the general capabilities of the

@@ -1,11 +1,12 @@
 use core::{
   ffi::{c_int, c_void},
-  mem::size_of,
+  mem::{size_of, size_of_val},
   ptr::{null, null_mut},
 };
 
 use crate::{
-  errhandlingapi::ErrorCode, macros::impl_bit_ops, string_from_utf16,
+  errhandlingapi::ErrorCode, hidpi::HidUsagePage, macros::impl_bit_ops,
+  string_from_utf16, FmtUpperHex,
 };
 
 use super::{
@@ -766,5 +767,105 @@ pub fn get_raw_input_device_name(device: HANDLE) -> OsResult<String> {
     // count is -1 because the last unit is the 0 terminator
     unsafe { buf.set_len(char_count.saturating_sub(1).try_into().unwrap()) };
     Ok(string_from_utf16(&buf))
+  }
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct RID_DEVICE_INFO {
+  size: DWORD,
+  ty: DWORD,
+  u: RID_DEVICE_INFO_union,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+union RID_DEVICE_INFO_union {
+  mouse: RidDeviceInfoMouse,
+  keyboard: RidDeviceInfoKeyboard,
+  hid: RidDeviceInfoHID,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct RidDeviceInfoMouse {
+  pub id: DWORD,
+  pub number_of_buttons: DWORD,
+  pub sample_rate: DWORD,
+  pub has_horizontal_wheel: BOOL,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct RidDeviceInfoKeyboard {
+  pub ty: DWORD,
+  pub subtype: DWORD,
+  pub keyboard_mouse: DWORD,
+  pub number_of_function_keys: DWORD,
+  pub number_of_indicators: DWORD,
+  pub number_of_keys_total: DWORD,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct RidDeviceInfoHID {
+  pub vendor_id: DWORD,
+  pub product_id: DWORD,
+  pub version_number: DWORD,
+  pub usage_page: HidUsagePage,
+  pub usage: USHORT,
+}
+impl core::fmt::Debug for RidDeviceInfoHID {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let mut x = f.debug_struct("RidDeviceIntoHID");
+    x.field("vendor_id", &FmtUpperHex(self.vendor_id));
+    x.field("product_id", &FmtUpperHex(self.product_id));
+    x.field("version_number", &self.version_number);
+    x.field("usage_page", &self.usage_page);
+    x.field("usage", &self.usage);
+    x.finish()
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RawInputDeviceInfoEnum {
+  Mouse(RidDeviceInfoMouse),
+  Keyboard(RidDeviceInfoKeyboard),
+  HID(RidDeviceInfoHID),
+}
+
+#[inline]
+#[track_caller]
+pub fn get_raw_input_device_info(
+  device: HANDLE,
+) -> OsResult<RawInputDeviceInfoEnum> {
+  const RIDI_DEVICEINFO: UINT = 0x2000000b;
+  //
+  let mut info: RID_DEVICE_INFO = unsafe { core::mem::zeroed() };
+  info.size = size_of::<RID_DEVICE_INFO>().try_into().unwrap();
+  let mut size: UINT = size_of_val(&info).try_into().unwrap();
+  //
+  let bytes_written = unsafe {
+    GetRawInputDeviceInfoW(
+      device,
+      RIDI_DEVICEINFO,
+      (&mut info as *mut RID_DEVICE_INFO).cast(),
+      &mut size,
+    )
+  };
+  const RIM_TYPEMOUSE: DWORD = 0;
+  const RIM_TYPEKEYBOARD: DWORD = 1;
+  const RIM_TYPEHID: DWORD = 2;
+  if bytes_written == u32::MAX {
+    Err(get_last_error_here())
+  } else {
+    Ok(match info.ty {
+      RIM_TYPEMOUSE => RawInputDeviceInfoEnum::Mouse(unsafe { info.u.mouse }),
+      RIM_TYPEKEYBOARD => {
+        RawInputDeviceInfoEnum::Keyboard(unsafe { info.u.keyboard })
+      }
+      RIM_TYPEHID => RawInputDeviceInfoEnum::HID(unsafe { info.u.hid }),
+      _ => return Err(LocatedErrorCode::new(ErrorCode::INVALID_DATA)),
+    })
   }
 }

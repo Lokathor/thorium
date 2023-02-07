@@ -16,3 +16,13 @@ fn string_from_utf16(utf16: &[u16]) -> String {
     .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
     .collect()
 }
+
+struct FmtUpperHex<T>(T);
+impl<T> core::fmt::Debug for FmtUpperHex<T>
+where
+  T: core::fmt::UpperHex,
+{
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "0x{:X}", self.0)
+  }
+}
