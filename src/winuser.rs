@@ -817,7 +817,7 @@ pub struct RidDeviceInfoHID {
 }
 impl core::fmt::Debug for RidDeviceInfoHID {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let mut x = f.debug_struct("RidDeviceIntoHID");
+    let mut x = f.debug_struct("RidDeviceInfoHID");
     x.field("vendor_id", &FmtUpperHex(self.vendor_id));
     x.field("product_id", &FmtUpperHex(self.product_id));
     x.field("version_number", &self.version_number);

@@ -200,6 +200,7 @@ unsafe extern "system" fn win_proc(
             return DefWindowProcW(hwnd, msg, w_param, l_param);
           }
         };
+      //println!("raw input data required_size: {required_size}");
       RAW_INPUT_BUFFER.with(|ref_cell| {
         let buffer: &mut Vec<u8> = &mut *ref_cell.borrow_mut();
         buffer.resize(required_size, 0);
