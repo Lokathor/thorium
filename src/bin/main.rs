@@ -57,10 +57,8 @@ fn main() {
 
 use std::{cell::RefCell, collections::HashMap};
 std::thread_local! {
-  /// Simple buffer for raw input processing.
-  /// Should only be used during WM_INPUT as a place to copy the data to.
-  static RAW_INPUT_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
-
+  // probably replace this with a Mutex? Apparently a low-contention Mutex is
+  // actually faster in general than using a thread local.
   static CAP_DATABASE: RefCell<HashMap<HANDLE, HidInfo>> = RefCell::new(HashMap::new());
 }
 
@@ -200,19 +198,15 @@ unsafe extern "system" fn win_proc(
             return DefWindowProcW(hwnd, msg, w_param, l_param);
           }
         };
-      //println!("raw input data required_size: {required_size}");
-      RAW_INPUT_BUFFER.with(|ref_cell| {
-        let buffer: &mut Vec<u8> = &mut *ref_cell.borrow_mut();
-        buffer.resize(required_size, 0);
-        let data = match get_raw_input_data(hrawinput, buffer) {
-          Ok(data) => data,
-          Err(e) => {
-            println!("rawinput err: {e:?}");
-            return;
-          }
-        };
-        parse_raw_input(data);
-      });
+      let mut buffer: Vec<u8> = vec![0_u8; required_size];
+      let data = match get_raw_input_data(hrawinput, &mut buffer) {
+        Ok(data) => data,
+        Err(e) => {
+          println!("rawinput err: {e:?}");
+          return DefWindowProcW(hwnd, msg, w_param, l_param);
+        }
+      };
+      parse_raw_input(data);
     }
     _ => (),
   };
