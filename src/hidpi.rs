@@ -348,9 +348,9 @@ pub fn hidp_get_scaled_usage_value(
 /// * The buffer is written in little-endian order. I think the individual
 ///   values are two bytes each?
 #[inline]
-pub fn hidp_get_usage_value_array<'b>(
+pub fn hidp_get_usage_value_array(
   report_type: HidpReportType, usage_page: HidUsagePage,
-  link_collection: USHORT, usage: USAGE, usage_value: &'b mut [u8],
+  link_collection: USHORT, usage: USAGE, usage_value: &mut [u8],
   preparsed_data: &RawInputDevicePreparsedData, report: &[u8],
 ) -> HidpResult<()> {
   let report_length: ULONG = report.len().try_into().unwrap();

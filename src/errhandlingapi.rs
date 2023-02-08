@@ -1,3 +1,8 @@
+#![warn(missing_docs)]
+#![warn(clippy::missing_inline_in_public_items)]
+
+//! Functions to ease the checking of Win32 error codes.
+
 use core::panic::Location;
 
 use super::win_types::*;
@@ -19,19 +24,23 @@ extern "system" {
   fn SetLastError(err_code: DWORD);
 }
 
+/// A plain Win32 error code.
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct ErrorCode(pub DWORD);
+#[allow(missing_docs)]
 impl ErrorCode {
   pub const NOT_ENOUGH_MEMORY: Self = Self(0x8);
   pub const INVALID_DATA: Self = Self(0xD);
 }
 impl core::fmt::Debug for ErrorCode {
+  #[inline]
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "ErrorCode(0x{:08X})", self.0)
   }
 }
 impl core::fmt::Display for ErrorCode {
+  #[inline]
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "0x{:08X}", self.0)
   }
@@ -50,13 +59,20 @@ pub fn set_last_error(err_code: ErrorCode) {
   unsafe { SetLastError(err_code.0) }
 }
 
-/// Bundles an error code and [Location] into a single struct.
+/// Bundles an [ErrorCode] with a [Location] of where it occurred in the
+/// program.
 #[derive(Clone, Copy)]
+#[allow(missing_docs)]
 pub struct LocatedErrorCode {
   pub location: &'static Location<'static>,
   pub err_code: ErrorCode,
 }
 impl LocatedErrorCode {
+  /// Tags an error code with its location in the program.
+  ///
+  /// This function uses `#[track_caller]`. Small wrapper functions that aren't
+  /// "really" the source of the error should also use `#[track_caller]` so that
+  /// the apparent error location is as relevent as possible.
   #[inline]
   #[must_use]
   #[track_caller]
@@ -65,6 +81,7 @@ impl LocatedErrorCode {
   }
 }
 impl core::fmt::Debug for LocatedErrorCode {
+  #[allow(clippy::missing_inline_in_public_items)]
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let file = self.location.file();
     let line = self.location.line();
@@ -91,4 +108,5 @@ pub fn get_last_error_here() -> LocatedErrorCode {
   LocatedErrorCode::new(get_last_error())
 }
 
+/// A [Result] alias where the error side is a [LocatedErrorCode].
 pub type OsResult<T> = Result<T, LocatedErrorCode>;

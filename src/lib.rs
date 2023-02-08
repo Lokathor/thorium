@@ -1,3 +1,7 @@
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::upper_case_acronyms)]
+
 extern crate alloc;
 
 mod macros;

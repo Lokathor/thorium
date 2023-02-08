@@ -133,7 +133,7 @@ impl ZWString {
     self.0.as_mut_ptr()
   }
   #[inline]
-  #[must_use]
+  #[allow(clippy::needless_lifetimes)]
   pub fn chars<'a>(&'a self) -> impl Iterator<Item = char> + 'a {
     let live_slice: &[u16] = &self.0[..(self.0.len() - 1)];
     core::char::decode_utf16(live_slice.iter().copied())
@@ -199,7 +199,7 @@ impl Drop for GlobalBuffer {
 impl Clone for GlobalBuffer {
   fn clone(&self) -> Self {
     let mut the_clone = Self::new(self.len()).unwrap();
-    the_clone.copy_from_slice(&self);
+    the_clone.copy_from_slice(self);
     the_clone
   }
 }
