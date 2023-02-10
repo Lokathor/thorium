@@ -20,6 +20,7 @@ pub type HLOCAL = HANDLE;
 pub type HMODULE = HANDLE;
 pub type HINSTANCE = HANDLE;
 pub type HMENU = HANDLE;
+pub type HDC = HANDLE;
 pub type HICON = HANDLE;
 pub type HCURSOR = HANDLE;
 pub type HBRUSH = HANDLE;
@@ -42,6 +43,7 @@ pub type HRAWINPUT = HANDLE;
 pub type BYTE = u8;
 pub type UCHAR = c_uchar;
 pub type CHAR = c_char;
+pub type COLORREF = DWORD;
 
 // should probably be a newtype?
 pub type NTSTATUS = LONG;
@@ -54,7 +56,7 @@ pub type WNDPROC_nn = unsafe extern "system" fn(
 ) -> LRESULT;
 pub type WNDPROC = Option<WNDPROC_nn>;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct BOOL(pub int);
 impl From<bool> for BOOL {
@@ -102,7 +104,7 @@ impl core::fmt::Debug for BOOLEAN {
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct HANDLE(pub isize);
 impl HANDLE {
@@ -167,6 +169,8 @@ impl From<&str> for ZWString {
 /// GlobalAlloc buffer of bytes that's aligned to `usize`.
 #[repr(transparent)]
 pub struct GlobalBuffer(NonNull<[u8]>);
+unsafe impl Send for GlobalBuffer {}
+unsafe impl Sync for GlobalBuffer {}
 impl GlobalBuffer {
   pub fn new(byte_count: usize) -> Option<Self> {
     let layout =
@@ -202,4 +206,13 @@ impl Clone for GlobalBuffer {
     the_clone.copy_from_slice(self);
     the_clone
   }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct RECT {
+  pub left: LONG,
+  pub top: LONG,
+  pub right: LONG,
+  pub bottom: LONG,
 }

@@ -73,6 +73,15 @@ extern "system" {
   fn GetRawInputDeviceInfoW(
     device: HANDLE, command: UINT, data: LPVOID, size: *mut UINT,
   ) -> UINT;
+
+  /// MSDN: [BeginPaint](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-beginpaint)
+  fn BeginPaint(hwnd: HWND, paint: *mut PAINTSTRUCT) -> HDC;
+
+  /// MSDN: [EndPaint](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-endpaint)
+  fn EndPaint(hwnd: HWND, paint: *const PAINTSTRUCT) -> BOOL;
+
+  /// MSDN: [FillRect](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-fillrect)
+  fn FillRect(hdc: HDC, rect: *const RECT, brush: HBRUSH) -> int;
 }
 
 #[derive(Clone, Copy, Default)]
@@ -378,6 +387,7 @@ pub fn destroy_window(hwnd: HWND) -> OsResult<()> {
 pub struct WinMessage(pub UINT);
 impl WinMessage {
   pub const CREATE: Self = Self(0x0001);
+  pub const PAINT: Self = Self(0x000F);
   pub const CLOSE: Self = Self(0x0010);
   pub const QUIT: Self = Self(0x0012);
   pub const INPUT_DEVICE_CHANGE: Self = Self(0x00FE);
@@ -868,4 +878,41 @@ pub fn get_raw_input_device_info(
       _ => return Err(LocatedErrorCode::new(ErrorCode::INVALID_DATA)),
     })
   }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct PAINTSTRUCT {
+  pub hdc: HDC,
+  pub erase: BOOL,
+  pub target: RECT,
+  pub _restore: BOOL,
+  pub _inc_update: BOOL,
+  pub _reserved: [BYTE; 32],
+}
+
+/// Preps the window for GDI painting, giving the HDC and paint struct.
+#[inline]
+#[track_caller]
+pub fn begin_paint(hwnd: HWND) -> OsResult<(HDC, PAINTSTRUCT)> {
+  let mut paint = PAINTSTRUCT::default();
+  let hdc = unsafe { BeginPaint(hwnd, &mut paint) };
+  if hdc.is_null() {
+    Err(get_last_error_here())
+  } else {
+    Ok((hdc, paint))
+  }
+}
+
+/// Ends GDI painting.
+///
+/// You should pass the same paint struct that you got when painting started.
+#[inline]
+pub fn end_paint(hwnd: HWND, paint: &PAINTSTRUCT) -> BOOL {
+  unsafe { EndPaint(hwnd, paint) }
+}
+
+#[inline]
+pub fn fill_rect(hdc: HDC, rect: &RECT, brush: HBRUSH) -> BOOL {
+  BOOL(unsafe { FillRect(hdc, rect, brush) })
 }

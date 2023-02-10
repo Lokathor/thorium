@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 
 use core::ptr::null_mut;
+use std::{collections::HashMap, sync::Mutex};
 
 use thorium::{
   errhandlingapi::OsResult, hidpi::*, hidsdi::*, win_types::*, winuser::*,
@@ -55,11 +56,9 @@ fn main() {
   atom.unregister().unwrap();
 }
 
-use std::{cell::RefCell, collections::HashMap};
-std::thread_local! {
-  // probably replace this with a Mutex? Apparently a low-contention Mutex is
-  // actually faster in general than using a thread local.
-  static CAP_DATABASE: RefCell<HashMap<HANDLE, HidInfo>> = RefCell::new(HashMap::new());
+lazy_static::lazy_static! {
+  static ref CAP_DATABASE: Mutex<HashMap<HANDLE, HidInfo>> =
+    Mutex::new(HashMap::new());
 }
 
 struct HidInfo {
@@ -171,19 +170,17 @@ unsafe extern "system" fn win_proc(
             for (i, value_cap) in hid_caps.input_value_caps.iter().enumerate() {
               println!("=values[{i}]: {value_cap:?}");
             }
-            CAP_DATABASE.with(|ref_cell| {
-              let db: &mut HashMap<_, _> = &mut *ref_cell.borrow_mut();
-              db.insert(handle, hid_caps);
-            });
+            {
+              CAP_DATABASE.lock().unwrap().insert(handle, hid_caps);
+            }
           }
           Err(e) => println!("Err getting caps for new device: {e:?}"),
         }
       } else {
         println!("INPUT_DEVICE_CHANGE removed: {handle:?}");
-        CAP_DATABASE.with(|ref_cell| {
-          let db: &mut HashMap<_, _> = &mut *ref_cell.borrow_mut();
-          db.remove(&handle);
-        });
+        {
+          CAP_DATABASE.lock().unwrap().remove(&handle);
+        }
       }
       //panic!();
       return 0;
@@ -208,6 +205,17 @@ unsafe extern "system" fn win_proc(
       };
       parse_raw_input(data);
     }
+    WinMessage::PAINT => {
+      let drawing = || {
+        let (hdc, paint) = begin_paint(hwnd)?;
+        fill_rect(hdc, &paint.target, HANDLE(1));
+        end_paint(hwnd, &paint);
+        OsResult::Ok(())
+      };
+      if let Err(e) = drawing() {
+        println!("Drawing Error: {e:?}");
+      }
+    }
     _ => (),
   };
   DefWindowProcW(hwnd, msg, w_param, l_param)
@@ -223,69 +231,66 @@ fn parse_raw_input(data: &RawInputData) {
   }
   let report = data.hid_raw_data().unwrap();
 
-  CAP_DATABASE.with(|ref_cell| {
-    let db: &HashMap<_, _> = &*ref_cell.borrow();
-    let Some(hid) = db.get(&handle) else {
-      return;
-    };
+  let db: &HashMap<_, _> = &*CAP_DATABASE.lock().unwrap();
+  let Some(hid) = db.get(&handle) else {
+    return;
+  };
+  // BUTTONS
+  let len = hidp_max_button_list_length(
+    HidpReportType::INPUT,
+    HidUsagePage::BUTTONS,
+    &hid.preparsed_data,
+  );
+  let mut buf: Vec<USAGE> = vec![0; len];
+  let pressed_result = hidp_get_buttons(
+    HidpReportType::INPUT,
+    HidUsagePage::BUTTONS,
+    0,
+    &mut buf,
+    &hid.preparsed_data,
+    report,
+  );
+  //println!("Get Buttons: {pressed_result:?}");
 
-    // BUTTONS
-    let len = hidp_max_button_list_length(
-      HidpReportType::INPUT,
-      HidUsagePage::BUTTONS,
-      &hid.preparsed_data,
-    );
-    let mut buf: Vec<USAGE> = vec![0; len];
-    let pressed_result = hidp_get_buttons(
-      HidpReportType::INPUT,
-      HidUsagePage::BUTTONS,
-      0,
-      &mut buf,
-      &hid.preparsed_data,
-      report,
-    );
-    //println!("Get Buttons: {pressed_result:?}");
-
-    // AXISES
-    let value_results: Vec<_> = hid
-      .input_value_caps
-      .iter()
-      .map(|value_cap| {
-        let usage = value_cap.u.not_range().usage;
-        let usage_str = match usage {
-          0x30 => "X",
-          0x31 => "Y",
-          0x32 => "Z",
-          0x33 => "Rx",
-          0x34 => "Ry",
-          0x35 => "Rz",
-          0x36 => "Slider",
-          0x37 => "Dial",
-          0x38 => "Wheel",
-          0x39 => "Hat",
-          _ => "?",
-        };
-        let value = hidp_get_usage_value(
-          HidpReportType::INPUT,
-          value_cap.usage_page,
-          0,
-          usage,
-          &hid.preparsed_data,
-          report,
-        )
-        .map(|value| {
-          let value = value as i32;
-          // this scaling function doesn't properly account for minimums that
-          // aren't zero!
-          if value >= value_cap.logical_min && value <= value_cap.logical_max {
-            value as f32 / value_cap.logical_max as f32
-          } else {
-            -1.0
-          }
-        });
-        (usage_str, value)
-      })
-      .collect();
-    //println!("Get Values: {value_results:?}");
-  });
+  // AXISES
+  let value_results: Vec<_> = hid
+    .input_value_caps
+    .iter()
+    .map(|value_cap| {
+      let usage = value_cap.u.not_range().usage;
+      let usage_str = match usage {
+        0x30 => "X",
+        0x31 => "Y",
+        0x32 => "Z",
+        0x33 => "Rx",
+        0x34 => "Ry",
+        0x35 => "Rz",
+        0x36 => "Slider",
+        0x37 => "Dial",
+        0x38 => "Wheel",
+        0x39 => "Hat",
+        _ => "?",
+      };
+      let value = hidp_get_usage_value(
+        HidpReportType::INPUT,
+        value_cap.usage_page,
+        0,
+        usage,
+        &hid.preparsed_data,
+        report,
+      )
+      .map(|value| {
+        let value = value as i32;
+        // this scaling function doesn't properly account for minimums that
+        // aren't zero!
+        if value >= value_cap.logical_min && value <= value_cap.logical_max {
+          value as f32 / value_cap.logical_max as f32
+        } else {
+          -1.0
+        }
+      });
+      (usage_str, value)
+    })
+    .collect();
+  //println!("Get Values: {value_results:?}");
 }

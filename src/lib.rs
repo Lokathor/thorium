@@ -12,6 +12,7 @@ pub mod hidsdi;
 pub mod libloaderapi;
 pub mod win_types;
 pub mod winbase;
+pub mod wingdi;
 pub mod winuser;
 
 #[inline]
